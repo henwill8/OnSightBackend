@@ -7,62 +7,62 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 
-// Multer configuration: Store image in memory
-const upload = multer({ storage: multer.memoryStorage() });
+// // Multer configuration: Store image in memory
+// const upload = multer({ storage: multer.memoryStorage() });
 
-/**
- * Preprocess image into ONNX model format
- * @param buffer - Image buffer from multer
- * @param modelInputShape - Expected shape of the model [batch, channels, height, width]
- */
-async function preprocessImage(buffer: Buffer, modelInputShape: number[]): Promise<ort.Tensor> {
-    const [batch, channels, height, width] = modelInputShape;
+// /**
+//  * Preprocess image into ONNX model format
+//  * @param buffer - Image buffer from multer
+//  * @param modelInputShape - Expected shape of the model [batch, channels, height, width]
+//  */
+// async function preprocessImage(buffer: Buffer, modelInputShape: number[]): Promise<ort.Tensor> {
+//     const [batch, channels, height, width] = modelInputShape;
 
-    // Resize, convert to RGB, normalize
-    const image = await sharp(buffer)
-        .resize(width, height)
-        .removeAlpha()
-        .toColorspace("rgb")
-        .raw()
-        .toBuffer();
+//     // Resize, convert to RGB, normalize
+//     const image = await sharp(buffer)
+//         .resize(width, height)
+//         .removeAlpha()
+//         .toColorspace("rgb")
+//         .raw()
+//         .toBuffer();
 
-    let floatArray = Float32Array.from(image).map(pixel => pixel / 255.0);
+//     let floatArray = Float32Array.from(image).map(pixel => pixel / 255.0);
 
-    // Convert to NCHW format
-    let transposed: number[] = [];
-    for (let c = 0; c < channels; c++) {
-        for (let i = c; i < floatArray.length; i += channels) {
-            transposed.push(floatArray[i]);
-        }
-    }
+//     // Convert to NCHW format
+//     let transposed: number[] = [];
+//     for (let c = 0; c < channels; c++) {
+//         for (let i = c; i < floatArray.length; i += channels) {
+//             transposed.push(floatArray[i]);
+//         }
+//     }
 
-    return new ort.Tensor("float32", new Float32Array(transposed), [batch, channels, height, width]);
-}
+//     return new ort.Tensor("float32", new Float32Array(transposed), [batch, channels, height, width]);
+// }
 
-/**
- * Handle image prediction request
- */
-app.post("/predict", upload.single("image"), async (req: Request, res: Response): Promise<any> => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: "No file uploaded" });
-        }
+// /**
+//  * Handle image prediction request
+//  */
+// app.post("/predict", upload.single("image"), async (req: Request, res: Response): Promise<any> => {
+//     try {
+//         if (!req.file) {
+//             return res.status(400).json({ error: "No file uploaded" });
+//         }
 
-        // Load ONNX model
-        const session = await ort.InferenceSession.create("model.onnx");
+//         // Load ONNX model
+//         const session = await ort.InferenceSession.create("model.onnx");
 
-        // Preprocess image
-        const inputTensor = await preprocessImage(req.file.buffer, [1, 3, 224, 224]);
+//         // Preprocess image
+//         const inputTensor = await preprocessImage(req.file.buffer, [1, 3, 224, 224]);
 
-        // Run inference
-        const outputs = await session.run({ input: inputTensor });
+//         // Run inference
+//         const outputs = await session.run({ input: inputTensor });
 
-        res.json({ prediction: outputs });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Error processing image" });
-    }
-});
+//         res.json({ prediction: outputs });
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ error: "Error processing image" });
+//     }
+// });
 
 app.get("/", (req: Request, res: Response) => {
     res.json({ cats: "meow" });
