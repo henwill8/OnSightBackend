@@ -1,27 +1,67 @@
 import express, { Request, Response } from "express";
+import multer from "multer";
+import sharp from "sharp";
+import * as ort from "onnxruntime-node";
 import cors from "cors";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(cors());
-app.use(express.json());
 
-// Define your API routes here
-app.get('/api/example', (req: Request, res: Response) => {
-    res.json({ message: 'This is an example route' });
+// Multer configuration: Store image in memory
+const upload = multer({ storage: multer.memoryStorage() });
+
+/**
+ * Preprocess image into ONNX model format
+ * @param buffer - Image buffer from multer
+ * @param modelInputShape - Expected shape of the model [batch, channels, height, width]
+ */
+async function preprocessImage(buffer: Buffer, modelInputShape: number[]): Promise<ort.Tensor> {
+    const [batch, channels, height, width] = modelInputShape;
+
+    // Resize, convert to RGB, normalize
+    const image = await sharp(buffer)
+        .resize(width, height)
+        .removeAlpha()
+        .toFormat("rgb")
+        .raw()
+        .toBuffer();
+
+    let floatArray = Float32Array.from(image).map(pixel => pixel / 255.0);
+
+    // Convert to NCHW format
+    let transposed: number[] = [];
+    for (let c = 0; c < channels; c++) {
+        for (let i = c; i < floatArray.length; i += channels) {
+            transposed.push(floatArray[i]);
+        }
+    }
+
+    return new ort.Tensor("float32", new Float32Array(transposed), [batch, channels, height, width]);
+}
+
+/**
+ * Handle image prediction request
+ */
+app.post("/predict", upload.single("image"), async (req: Request, res: Response) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        // Load ONNX model
+        const session = await ort.InferenceSession.create("model.onnx");
+
+        // Preprocess image
+        const inputTensor = await preprocessImage(req.file.buffer, [1, 3, 224, 224]);
+
+        // Run inference
+        const outputs = await session.run({ input: inputTensor });
+
+        res.json({ prediction: outputs });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Error processing image" });
+    }
 });
 
-// Root route
-app.get('/', (req: Request, res: Response) => {
-    res.send('Welcome to the root page!');
-});
-
-// Catch-all for any unmatched routes and redirect to root
-app.use((req: Request, res: Response) => {
-    res.redirect('/');
-});
-
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-});
+app.listen(5000, () => console.log("Server running on port 5000"));
