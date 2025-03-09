@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "tsc && node dist/app.js",
-    "dev": "ts-node src/app.ts"
+    "build": "tsc",
+    "start": "npm run build && node dist/server.js",
+    "dev": "ts-node src/server.ts"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +16,9 @@
     "@types/express": "^5.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "pg": "^8.13.3"
+    "onnxruntime-node": "^1.21.0",
+    "pg": "^8.13.3",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
