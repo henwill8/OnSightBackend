@@ -43,16 +43,26 @@ async function preprocessImage(buffer, modelInputShape) {
  * Handle image prediction request
  */
 app.post("/predict", upload.single("image"), async (req, res) => {
+    console.log("Received predict request!");
     try {
         if (!req.file) {
             return res.status(400).json({ error: "No file uploaded" });
         }
 
         // Load ONNX model
-        const session = await ort.InferenceSession.create("model.onnx");
+        const session = await ort.InferenceSession.create("../models/model.onnx");
+        
+        // Get the input name (assuming there's only one input)
+        const inputName = session.inputNames[0];
+
+        // Get input tensor metadata (including shape)
+        const inputInfo = session.inputInfo.get(inputName);
+
+        // Extract input shape from metadata
+        const inputShape = inputInfo.shape; // [batch, channels, height, width]
 
         // Preprocess image
-        const inputTensor = await preprocessImage(req.file.buffer, [1, 3, 224, 224]);
+        const inputTensor = await preprocessImage(req.file.buffer, inputShape);
 
         // Run inference
         const outputs = await session.run({ input: inputTensor });
