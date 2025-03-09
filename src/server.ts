@@ -22,7 +22,7 @@ async function preprocessImage(buffer: Buffer, modelInputShape: number[]): Promi
     const image = await sharp(buffer)
         .resize(width, height)
         .removeAlpha()
-        .toFormat("rgb")
+        .toColorspace("rgb")
         .raw()
         .toBuffer();
 
@@ -42,7 +42,7 @@ async function preprocessImage(buffer: Buffer, modelInputShape: number[]): Promi
 /**
  * Handle image prediction request
  */
-app.post("/predict", upload.single("image"), async (req: Request, res: Response) => {
+app.post("/predict", upload.single("image"), async (req: Request, res: Response): Promise<any> => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: "No file uploaded" });
@@ -62,6 +62,15 @@ app.post("/predict", upload.single("image"), async (req: Request, res: Response)
         console.error(error);
         res.status(500).json({ error: "Error processing image" });
     }
+});
+
+app.get("/", (req: Request, res: Response) => {
+    res.json({ cats: "meow" });
+});
+
+// Catch-all route for any undefined GET requests and redirect to root
+app.get("*", (req: Request, res: Response) => {
+    res.redirect("/");
 });
 
 app.listen(5000, () => console.log("Server running on port 5000"));
