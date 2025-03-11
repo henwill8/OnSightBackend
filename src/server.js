@@ -18,6 +18,11 @@ const upload = multer({ storage: multer.memoryStorage() });
 async function preprocessImage(buffer, modelInputShape) {
     const [batch, channels, height, width] = modelInputShape;
 
+    // Get original image dimensions
+    const metadata = await sharp(buffer).metadata();
+    const originalWidth = metadata.width;
+    const originalHeight = metadata.height;
+
     // Resize, convert to RGB, normalize
     const image = await sharp(buffer)
         .resize(width, height)
@@ -36,8 +41,54 @@ async function preprocessImage(buffer, modelInputShape) {
         }
     }
 
-    return new ort.Tensor("float32", new Float32Array(transposed), [batch, channels, height, width]);
+    return { 
+        tensor: new ort.Tensor("float32", new Float32Array(transposed), [batch, channels, height, width]),
+        originalWidth,
+        originalHeight
+    };
 }
+
+const extractBoundingBoxes = (data, originalHeight, originalWidth) => {
+    const confidences = data["3054"].cpuData;
+    const types = data["3055"].cpuData;
+    const boxes = data["3076"].cpuData;
+
+    if (!confidences || !boxes) {
+        console.error("Missing bounding box or confidence data");
+        return [];
+    }
+
+    const confidenceKeys = Object.keys(confidences);
+
+    const scaledBoundingBoxes = confidenceKeys.map((key) => {
+        const confidence = confidences[key];
+        const type = types[key];
+        const boxStart = parseInt(key) * 4;
+    
+        if (confidence > 0.5 && Number(type) == 1) { // type 1 is climbing hold, type 2 is volume
+            // Extract the bounding box coordinates
+            const x = boxes[boxStart];
+            const y = boxes[boxStart + 1];
+            const w = boxes[boxStart + 2] - boxes[boxStart];
+            const h = boxes[boxStart + 3] - boxes[boxStart + 1];
+
+            const scaleX = originalWidth / 800;
+            const scaleY = originalHeight / 800;
+    
+            console.log(x * scaleX)
+
+            return [
+                x * scaleX, // x
+                y * scaleY, // y
+                w * scaleX, // width
+                h * scaleY  // height
+            ];
+        }
+        return null;
+    }).filter((box) => box !== null);
+
+    return scaledBoundingBoxes;
+};
 
 /**
  * Handle image prediction request
@@ -55,47 +106,18 @@ app.post("/predict", upload.single("image"), async (req, res) => {
         // Get the input name (assuming there's only one input)
         const inputName = session.inputNames[0];
         
-        // // Check if inputInfo exists and log it to inspect the structure
-        // console.log("Input names: ", session.inputNames);
-        // console.log("Input Info: ", session.inputInfo);
-        
-        // const inputInfo = session.inputInfo[inputName]; // Access metadata by input name
-        
-        // // Ensure inputInfo contains the shape property
-        // if (!inputInfo || !inputInfo.shape) {
-        //     return res.status(400).json({ error: "Model input shape not found" });
-        // }
-        
-        // // Extract input shape from metadata
-        // const inputShape = inputInfo.shape; // [batch, channels, height, width]
-        // console.log("Input shape: ", inputShape);
-        
         // Preprocess image
-        const inputTensor = await preprocessImage(req.file.buffer, [1, 3, 800, 800]);
+        const { tensor: inputTensor, originalWidth, originalHeight } = await preprocessImage(req.file.buffer, [1, 3, 800, 800]);
         
-        function serializeBigInt(obj) {
-            if (typeof obj === 'bigint') {
-                return obj.toString(); // Convert BigInt to string
-            } else if (typeof obj === 'object' && obj !== null) {
-                // Recursively handle object properties
-                const newObj = Array.isArray(obj) ? [] : {};
-                for (const key in obj) {
-                    if (obj.hasOwnProperty(key)) {
-                        newObj[key] = serializeBigInt(obj[key]);
-                    }
-                }
-                return newObj;
-            }
-            return obj;
-        }
-        
+        console.log("Incoming image size: " + originalWidth + "x" + originalHeight);
+
         const outputs = await session.run({ [inputName]: inputTensor });
         
-        // Serialize outputs to replace BigInt with string
-        const serializedOutputs = serializeBigInt(outputs);
-        
-        console.log("Prediction (JSON):", JSON.stringify(serializedOutputs, null, 2));
-        res.json({ prediction: serializedOutputs });
+        // Get predicted bounding boxes and scale them back to original size
+        let boundingBoxes = extractBoundingBoxes(outputs, originalWidth, originalHeight);
+        console.log(boundingBoxes)
+        console.log("Prediction (JSON):", JSON.stringify(boundingBoxes, null, 2));
+        res.json({ prediction: boundingBoxes });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Error processing image" });
