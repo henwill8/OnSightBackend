@@ -25,7 +25,6 @@ function checkModelSize(filePath) {
 async function runModel(inputTensor) {
   try {
     const modelSize = await checkModelSize(modelPath);
-    console.log("Model size: ", modelSize); // Log model size
     if (modelSize < 10000) {
       console.log("Switching model path to volume storage");
       modelPath = '/app/storage/storage/models/model.onnx';
@@ -49,8 +48,6 @@ async function runModel(inputTensor) {
     throw error;
   }
 }
-
-
 
 /**
  * Extract raw bounding boxes from model output
