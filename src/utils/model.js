@@ -3,7 +3,7 @@ const path = require('path');
 const ort = require("onnxruntime-node");
 
 // File path to the model
-const modelPath = path.join(process.cwd(), './models/model.onnx');
+let modelPath = path.join(process.cwd(), './models/model.onnx');
 
 // Check file size before loading the model
 function checkModelSize(filePath) {
