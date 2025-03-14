@@ -9,6 +9,7 @@ app.use(cors());
 app.use("/predict", predictRoute);
 
 app.get("/", (req, res) => {
+    console.log("Server is running!");
     res.json({ status: "Server is running!" });
 });
 
