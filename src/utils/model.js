@@ -25,8 +25,10 @@ function checkModelSize(filePath) {
 async function runModel(inputTensor) {
   try {
     const modelSize = await checkModelSize(modelPath); // Ensure size check completes first
+    console.log("Model size is " + modelSize);
     if (modelSize < 10000) {
-        modelPath = '/app/storage/storage/models/model.onnx';
+      console.log("Switching model path to volume storage");
+      modelPath = '/app/storage/storage/models/model.onnx';
     }
 
     console.log("Creating onnxruntime session at " + modelPath);
