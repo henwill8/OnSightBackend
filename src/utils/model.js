@@ -7,18 +7,18 @@ const modelPath = path.join(process.cwd(), './models/model.onnx');
 
 // Check file size before loading the model
 function checkModelSize(filePath) {
-  fs.stat(filePath, (err, stats) => {
-    console.log("Checking file size at " + filePath)
-    if (err) {
-      console.log("Error checking file size: " + err);
-
-      return 0;
-    } else {
-      const fileSizeInBytes = stats.size;
-      console.log(`Model file size: ${fileSizeInBytes} bytes`);
-      
-      return fileSizeInBytes;
-    }
+  return new Promise((resolve, reject) => {
+    fs.stat(filePath, (err, stats) => {
+      console.log("Checking file size at " + filePath);
+      if (err) {
+        console.log("Error checking file size: " + err);
+        resolve(0);
+      } else {
+        const fileSizeInBytes = stats.size;
+        console.log(`Model file size: ${fileSizeInBytes} bytes`);
+        resolve(fileSizeInBytes);
+      }
+    });
   });
 }
 
