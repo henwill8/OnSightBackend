@@ -23,21 +23,23 @@ function checkModelSize(filePath) {
 }
 
 async function runModel(inputTensor) {
-    try {
-        if(checkModelSize(modelPath) < 10000) {
-          modelPath = '/app/storage/storage/models/model.onnx'
-        }
-
-        console.log("Creating onnxruntime session at " + modelPath);
-        
-        const session = await ort.InferenceSession.create(modelPath);
-        const inputName = session.inputNames[0];
-        return await session.run({ [inputName]: inputTensor });
-    } catch (error) {
-        console.error("Error running model:", error);
-        throw error; // Re-throw to be handled by calling function
+  try {
+    const modelSize = await checkModelSize(modelPath); // Ensure size check completes first
+    if (modelSize < 10000) {
+        modelPath = '/app/storage/storage/models/model.onnx';
     }
+
+    console.log("Creating onnxruntime session at " + modelPath);
+    
+    const session = await ort.InferenceSession.create(modelPath);
+    const inputName = session.inputNames[0];
+    return await session.run({ [inputName]: inputTensor });
+  } catch (error) {
+    console.error("Error running model:", error);
+    throw error; // Re-throw to be handled by calling function
+  }
 }
+
 
 /**
  * Extract raw bounding boxes from model output
