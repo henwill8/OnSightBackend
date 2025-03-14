@@ -1,9 +1,45 @@
+const fs = require('fs');
+const path = require('path');
 const ort = require("onnxruntime-node");
 
+// File path to the model
+const modelPath = path.join(__dirname, './models/model.onnx');
+
+// Check file size before loading the model
+function checkModelSize(filePath) {
+    return new Promise((resolve, reject) => {
+        fs.stat(filePath, (err, stats) => {
+            if (err) {
+                reject("Error checking file size: " + err);
+            } else {
+                const fileSizeInBytes = stats.size;
+                console.log(`Model file size: ${fileSizeInBytes} bytes`);
+                
+                // Add your max size threshold here (e.g., 100 MB)
+                const MAX_SIZE = 100 * 1024 * 1024; // 100 MB
+
+                if (fileSizeInBytes > MAX_SIZE) {
+                    reject("Model file is too large.");
+                } else {
+                    resolve(fileSizeInBytes);
+                }
+            }
+        });
+    });
+}
+
 async function runModel(inputTensor) {
-    const session = await ort.InferenceSession.create("./models/model.onnx");
-    const inputName = session.inputNames[0];
-    return await session.run({ [inputName]: inputTensor });
+    try {
+        // Check if model file size is acceptable
+        await checkModelSize(modelPath);
+        
+        const session = await ort.InferenceSession.create(modelPath);
+        const inputName = session.inputNames[0];
+        return await session.run({ [inputName]: inputTensor });
+    } catch (error) {
+        console.error("Error running model:", error);
+        throw error; // Re-throw to be handled by calling function
+    }
 }
 
 /**
