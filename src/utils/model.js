@@ -99,4 +99,4 @@ function adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeig
     .filter(box => box !== null);
 }
 
-module.exports = { runModel, extractRawBoundingBoxes, adjustBoundingBoxesToOriginalSize, downloadModel };
+module.exports = { runModel, extractRawBoundingBoxes, adjustBoundingBoxesToOriginalSize };
