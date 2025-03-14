@@ -2,72 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const ort = require("onnxruntime-node");
 
-const axios = require("axios");
-
-require('dotenv').config();
-
-// Info to download the model file from the github repo using github lfs
-const owner = 'henwill8';
-const repo = 'OnSightBackend';
-const filePath = 'models/model.onnx';
-const token = process.env.GITHUB_TOKEN;
-
 // File path to the model
 const modelPath = path.join(process.cwd(), './models/model.onnx');
-
-async function downloadModel() {
-  try {
-    // Check if the file already exists
-    if (fs.existsSync(modelPath)) {
-      console.log('Model file already exists at', modelPath);
-
-      if(checkModelSize(modelPath) > 10000) {
-        console.log("Model file is not big enough, replacing...");
-      } else {
-        // return; // Skip download if model exists and is big enough
-      }
-    }
-
-    // Construct the URL to download the LFS file
-    const url = `https://api.github.com/repos/${owner}/${repo}/git/blobs/${filePath}`;
-
-    // Fetch the LFS object metadata from GitHub's API
-    const response = await axios.get(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3.raw',
-      },
-    });
-
-    // Get the download URL from the response
-    const downloadUrl = response.data.download_url; // The actual LFS file URL
-
-    // Download the LFS file with axios
-    const fileResponse = await axios.get(downloadUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3.raw',
-      },
-      responseType: 'stream', // Stream the file instead of loading it into memory
-    });
-
-    // Write the file to disk
-    const writer = fs.createWriteStream(modelPath);
-
-    // Pipe the response data (the LFS file) into a file
-    fileResponse.data.pipe(writer);
-
-    writer.on('finish', () => {
-      console.log('File downloaded successfully');
-    });
-
-    writer.on('error', (err) => {
-      console.error('Error downloading file', err);
-    });
-  } catch (error) {
-    console.error('Error fetching LFS file', error);
-  }
-}
 
 // Check file size before loading the model
 function checkModelSize(filePath) {
@@ -88,7 +24,11 @@ function checkModelSize(filePath) {
 
 async function runModel(inputTensor) {
     try {
-        await checkModelSize(modelPath);
+        if(checkModelSize(modelPath) < 10000) {
+          modelPath = '/app/storage/storage/models/model.onnx'
+        }
+
+        console.log("Creating onnxruntime session at " + modelPath);
         
         const session = await ort.InferenceSession.create(modelPath);
         const inputName = session.inputNames[0];
