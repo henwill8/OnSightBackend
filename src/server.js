@@ -18,4 +18,24 @@ app.get("*", (req, res) => {
 });
 
 const port = process.env.PORT || 5000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`)
+
+  const fs = require('fs');
+  const path = '/app/storage/';
+
+  fs.readdir(path, (err, files) => {
+    if (err) {
+      console.error('Error reading directory:', err);
+      return;
+    }
+    console.log('Files in /app/storage:', files);
+  });
+  fs.readdir(path+"models/", (err, files) => {
+    if (err) {
+      console.error('Error reading directory:', err);
+      return;
+    }
+    console.log('Files in /app/storage/models:', files);
+  });
+});
