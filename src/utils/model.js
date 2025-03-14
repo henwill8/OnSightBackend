@@ -24,23 +24,32 @@ function checkModelSize(filePath) {
 
 async function runModel(inputTensor) {
   try {
-    const modelSize = await checkModelSize(modelPath); // Ensure size check completes first
-    console.log("Model size is " + modelSize);
+    const modelSize = await checkModelSize(modelPath);
+    console.log("Model size: ", modelSize); // Log model size
     if (modelSize < 10000) {
       console.log("Switching model path to volume storage");
       modelPath = '/app/storage/storage/models/model.onnx';
     }
 
-    console.log("Creating onnxruntime session at " + modelPath);
+    console.log("Attempting to create onnxruntime session at " + modelPath);
     
+    // Log memory and resource usage before creating the session
+    console.log("Creating session...");
     const session = await ort.InferenceSession.create(modelPath);
+    console.log("Session created successfully.");
+
     const inputName = session.inputNames[0];
-    return await session.run({ [inputName]: inputTensor });
+    console.log("Input name: ", inputName);
+
+    const result = await session.run({ [inputName]: inputTensor });
+    console.log("Model run successful.");
+    return result;
   } catch (error) {
     console.error("Error running model:", error);
-    throw error; // Re-throw to be handled by calling function
+    throw error;
   }
 }
+
 
 
 /**
