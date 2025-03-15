@@ -10,7 +10,8 @@ async function preprocessImage(buffer, modelInputShape) {
     const [batch, channels, height, width] = modelInputShape;
 
     // Get original image dimensions
-    const metadata = await sharp(buffer).metadata();
+    const rotatedBuffer = await sharp(buffer).rotate().toBuffer();
+    const metadata = await sharp(rotatedBuffer).metadata();
     const originalWidth = metadata.width;
     const originalHeight = metadata.height;
 
