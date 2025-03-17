@@ -9,9 +9,30 @@ const pool = new Pool({
   },
 });
 
-// Generate a refresh token
-const generateRefreshToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET_KEY, { expiresIn: '30d' });
+// Utility: Generate tokens
+const generateTokens = (userId) => {
+  const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET_KEY, { expiresIn: '1h' });
+  const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET_KEY, { expiresIn: '30d' });
+  return { accessToken, refreshToken };
+};
+
+// Utility: Store refresh token in database
+const storeRefreshToken = async (userId, refreshToken) => {
+  await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
+
+  await pool.query(
+    'INSERT INTO refresh_tokens (user_id, token) VALUES ($1, $2)',
+    [userId, refreshToken]
+  );
+};
+
+// Utility: Set refresh token in cookies
+const setRefreshTokenCookie = (res, refreshToken) => {
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days (user will have to re-login after)
+  });
 };
 
 // Register user
@@ -29,22 +50,14 @@ const registerUser = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Create access and refresh tokens
-    const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET_KEY, { expiresIn: '1h' });
-    const refreshToken = generateRefreshToken(user.id);
+    // Generate tokens
+    const { accessToken, refreshToken } = generateTokens(user.id);
 
-    // Store the refresh token in the database (optional, for added security)
-    await pool.query(
-      'INSERT INTO refresh_tokens (user_id, token) VALUES ($1, $2)',
-      [user.id, refreshToken]
-    );
+    // Store refresh token in database
+    await storeRefreshToken(user.id, refreshToken);
 
-    // Set refresh token as an HTTP-only cookie
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    });
+    // Set refresh token as HTTP-only cookie
+    setRefreshTokenCookie(res, refreshToken);
 
     res.status(201).json({ message: 'User created', accessToken });
   } catch (error) {
@@ -58,7 +71,6 @@ const loginUser = async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    // Find user by username
     const result = await pool.query(
       'SELECT * FROM users WHERE username = $1',
       [username]
@@ -69,29 +81,20 @@ const loginUser = async (req, res) => {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
-    // Check if password matches
+    // Check password
     const isMatch = await bcrypt.compare(password, user.password_hash);
-
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
-    // Create access and refresh tokens
-    const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET_KEY, { expiresIn: '1h' });
-    const refreshToken = generateRefreshToken(user.id);
+    // Generate tokens
+    const { accessToken, refreshToken } = generateTokens(user.id);
 
-    // Store the refresh token in the database (optional, for added security)
-    await pool.query(
-      'INSERT INTO refresh_tokens (user_id, token) VALUES ($1, $2)',
-      [user.id, refreshToken]
-    );
+    // Store refresh token in database
+    await storeRefreshToken(user.id, refreshToken);
 
-    // Set refresh token as an HTTP-only cookie
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    });
+    // Set refresh token as HTTP-only cookie
+    setRefreshTokenCookie(res, refreshToken);
 
     res.status(200).json({ message: 'Login successful', accessToken });
   } catch (error) {
@@ -100,19 +103,17 @@ const loginUser = async (req, res) => {
   }
 };
 
-// Refresh user token
+// Refresh token
 const refreshUserToken = async (req, res) => {
-  const refreshToken = req.cookies.refreshToken; // Retrieve the refresh token from cookies
+  const refreshToken = req.cookies.refreshToken;
 
   if (!refreshToken) {
     return res.status(403).json({ message: 'Refresh token is required' });
   }
 
   try {
-    // Verify the refresh token
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET_KEY);
 
-    // Check if the refresh token exists in the database
     const result = await pool.query(
       'SELECT * FROM refresh_tokens WHERE user_id = $1 AND token = $2',
       [decoded.userId, refreshToken]
@@ -122,7 +123,7 @@ const refreshUserToken = async (req, res) => {
       return res.status(403).json({ message: 'Invalid refresh token' });
     }
 
-    // Generate a new access token
+    // Generate new access token
     const accessToken = jwt.sign({ userId: decoded.userId }, process.env.JWT_SECRET_KEY, { expiresIn: '1h' });
 
     res.status(200).json({ accessToken });
@@ -132,8 +133,9 @@ const refreshUserToken = async (req, res) => {
   }
 };
 
+// Verify token
 const verifyToken = async (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1]; // Extract token from Authorization header
+  const token = req.headers.authorization?.split(' ')[1];
 
   if (!token) {
     return res.status(403).json({ message: 'No token provided' });
