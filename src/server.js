@@ -6,8 +6,9 @@ require('dotenv').config();
 require('module-alias/register');
 
 const authRoutes = require("@/src/routes/auth"); // Import the auth functions
-const predictRoute = require("@/src/routes/predict");
-const routesRoute = require("@/src/routes/routes"); // Climbing routes route
+const predictRoutes = require("@/src/routes/predict");
+const routesRoutes = require("@/src/routes/routes"); // Climbing routes route
+const gymsRoutes = require("@/src/routes/gyms");
 
 const app = express();
 app.use(cors());
@@ -16,9 +17,9 @@ app.use(express.json()); // Middleware for parsing JSON request bodies
 
 app.use('/auth', authRoutes);
 
-app.use("/api", predictRoute);
-
-app.use("/api", routesRoute)
+app.use("/api", predictRoutes);
+app.use("/api", routesRoutes);
+app.use("/api", gymsRoutes);
 
 // Route for getting the status of the server
 app.get("/", (req, res) => {
