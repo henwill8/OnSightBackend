@@ -1,13 +1,13 @@
 const express = require("express");
 const multer = require("multer");
-const { preprocessImage } = require("../utils/imageProcessing");
-const { runModel, extractRawBoundingBoxes, adjustBoundingBoxesToOriginalSize } = require("../utils/model");
+const { preprocessImage } = require("@/src/utils/imageProcessing");
+const { runModel, extractRawBoundingBoxes, adjustBoundingBoxesToOriginalSize } = require("@/src/utils/model");
 
 const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.post("/", upload.single("image"), async (req, res) => {
+router.post("/predict", upload.single("image"), async (req, res) => {
     console.log("Prediction request received!");
     try {
         if (!req.file) {

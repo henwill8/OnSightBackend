@@ -1,13 +1,8 @@
+const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
-});
+const pool = require('@/src/db');
+const router = express.Router();
 
 // Utility: Generate tokens
 const generateTokens = (userId) => {
@@ -44,7 +39,7 @@ const setRefreshTokenCookie = (res, refreshToken) => {
 };
 
 // Register user
-const registerUser = async (req, res) => {
+router.post('/register', async (req, res) => {
   const { username, email, password } = req.body;
 
   try {
@@ -75,10 +70,10 @@ const registerUser = async (req, res) => {
     console.error('Error registering user:', error);
     res.status(500).json({ message: 'Error creating user' });
   }
-};
+});
 
 // Login user
-const loginUser = async (req, res) => {
+router.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
@@ -117,10 +112,10 @@ const loginUser = async (req, res) => {
     console.error('Error logging in user:', error);
     res.status(500).json({ message: 'Error logging in' });
   }
-};
+});
 
 // Refresh token
-const refreshUserToken = async (req, res) => {
+router.post('/refresh-token', async (req, res) => {
   console.log("Refreshing user token");
   const refreshToken = req.cookies.refreshToken;
 
@@ -152,10 +147,10 @@ const refreshUserToken = async (req, res) => {
     console.error('Error verifying refresh token:', error);
     res.status(403).json({ message: 'Invalid or expired refresh token' });
   }
-};
+});
 
 // Verify token
-const verifyToken = async (req, res) => {
+router.get('/verify-token', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
 
   if (!token) {
@@ -171,6 +166,6 @@ const verifyToken = async (req, res) => {
     console.log('Error verifying token:', error);
     res.status(401).json({ message: 'Invalid or expired token' });
   }
-};
+});
 
-module.exports = { registerUser, loginUser, refreshUserToken, verifyToken };
+module.exports = router;

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const ort = require("onnxruntime-node");
+const { STORAGE_PATH } = require('@/config');
 
 // File path to the model
 let modelPath = path.join(process.cwd(), './models/model.onnx');
@@ -27,7 +28,7 @@ async function runModel(inputTensor) {
     const modelSize = await checkModelSize(modelPath);
     if (modelSize < 10000) {
       console.log("Switching model path to volume storage");
-      modelPath = '/app/storage/storage/models/model.onnx';
+      modelPath = STORAGE_PATH + '/models/model.onnx';
     }
 
     console.log("Attempting to create onnxruntime session at " + modelPath);
