@@ -30,7 +30,7 @@ app.get("/", (req, res) => {
 // Catch-all route for invalid routes
 app.all("*", (req, res) => {
   console.log(`Invalid route accessed: ${req.method} ${req.originalUrl}`);
-  res.redirect("/");
+  res.status(404).json({ message: "Invalid route accessed!"});
 });
 
 const listRoutes = (app) => {

@@ -32,39 +32,21 @@ const upload = multer({ storage: storage });
 
 router.post('/create-route', upload.single('image'), async (req, res) => {
   console.log('Received request to create a route');
-  console.log('Request body:', req.body);
   
   const { name, description, difficulty, gym_id } = req.body;
   const image = req.file;
-
-  console.log(image)
 
   if (!difficulty || !gym_id || !image) {
     console.log('Missing required fields or image file');
     return res.status(400).json({ error: 'Missing required fields or image file' });
   }
 
-  const imagePath = STORAGE_PATH + `/routeImages/${image.filename}`;
-  console.log(`Image path: ${imagePath}`);
+  console.log(`Image name: ${image.filename}`);
 
   try {
-    console.log(`Inserting route into database with data:`, {
-      name,
-      description,
-      difficulty,
-      gym_id,
-      imagePath
-    });
-
     const result = await pool.query(
       'INSERT INTO routes (name, description, difficulty, gym_id, image_url, created_at) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *',
-      [
-        name || null,
-        description || null,
-        difficulty,
-        gym_id,
-        imagePath
-      ]
+      [name || null, description || null, difficulty, gym_id, image.filename]
     );
 
     console.log('Route created successfully:', result.rows[0]);
@@ -72,6 +54,33 @@ router.post('/create-route', upload.single('image'), async (req, res) => {
   } catch (error) {
     console.error('Error creating route:', error);
     res.status(500).json({ error: 'Error creating route' });
+  }
+});
+
+// Serve static files from routeImages
+router.use('/routeImages', express.static(path.join(STORAGE_PATH, 'routeImages')));
+
+router.get('/get-routes/:gymId', async (req, res) => {
+  const { gymId } = req.params;
+
+  console.log(`Fetching routes for gym ID: ${gymId}`);
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM routes WHERE gym_id = $1 ORDER BY difficulty',
+      [gymId]
+    );
+
+    const routes = result.rows.map(route => ({
+      ...route,
+      image_url: `${req.protocol}://${req.get('host')}/api/routeImages/${route.image_url}` // Generate full URL for client
+    }));
+
+    console.log(`Found ${routes.length} routes for gym ID ${gymId}`);
+    res.status(200).json(routes);
+  } catch (error) {
+    console.error('Error fetching routes:', error);
+    res.status(500).json({ error: 'Error fetching routes' });
   }
 });
 
