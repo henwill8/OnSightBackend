@@ -72,7 +72,7 @@ function extractRawBoundingBoxes(data) {
       const type = types[key];
       const boxStart = parseInt(key) * 4;
 
-      if (confidence > 0.5 && Number(type) === 1) {
+      if (confidence >= 0.25 && Number(type) === 1) {
         const x1 = boxes[boxStart];
         const y1 = boxes[boxStart + 1];
         const x2 = boxes[boxStart + 2];
