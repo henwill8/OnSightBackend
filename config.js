@@ -1,6 +1,6 @@
 const path = require('path');
 
-const storage_volume = "/app/storage/storage";
+const storage_volume = "/app/storage";
 
 const STORAGE_PATH = process.env.NODE_ENV === 'development'
   ? path.resolve(__dirname, 'storage')  // Path for development
