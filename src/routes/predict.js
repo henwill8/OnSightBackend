@@ -23,6 +23,8 @@ router.post("/predict", upload.single("image"), async (req, res) => {
         
         const rawBoxes = extractRawBoundingBoxes(outputs);
         const boundingBoxes = adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeight, paddedWidth, paddedHeight);
+
+        console.log("Made " + boundingBoxes.length + " predictions!")
         
         res.json({ predictions: boundingBoxes, imageSize: { width: originalWidth, height: originalHeight }});
     } catch (error) {

@@ -67,7 +67,11 @@ router.get('/get-routes/:gymId', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT * FROM routes WHERE gym_id = $1 ORDER BY difficulty',
+      'SELECT * FROM routes WHERE gym_id = $1 ORDER BY ' +
+      'CASE ' +
+      '  WHEN difficulty ~ \'[0-9]\' THEN CAST(REGEXP_REPLACE(difficulty, \'[^0-9]\', \'\', \'g\') AS INTEGER) ' + 
+      '  ELSE 0 ' + 
+      'END',
       [gymId]
     );
 
