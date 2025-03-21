@@ -5,7 +5,7 @@ const cookieParser = require("cookie-parser");
 require('dotenv').config();
 require('module-alias/register');
 
-const authRoutes = require("@/src/routes/auth"); // Import the auth functions
+const { authRoutes, verifyAccessToken } = require("@/src/routes/auth"); // Import the auth functions
 const predictRoutes = require("@/src/routes/predict");
 const routesRoutes = require("@/src/routes/routes"); // Climbing routes route
 const gymsRoutes = require("@/src/routes/gyms");

@@ -4,6 +4,57 @@ const jwt = require('jsonwebtoken');
 const pool = require('@/src/db');
 const router = express.Router();
 
+// Middleware to verify access token
+const verifyAccessToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1]; // Extract token from Authorization header
+
+  if (!token) {
+    return res.status(403).json({ message: 'No access token provided' });
+  }
+
+  try {
+    // Verify the access token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
+    req.userId = decoded.userId; // Store the user ID in request for further use (e.g., in routes)
+    next(); // Proceed to the next middleware or route handler
+  } catch (error) {
+    console.error('Access token verification failed:', error);
+
+    // If the access token is invalid or expired, check if refresh token is present
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+      return res.status(401).json({ message: 'Invalid access token and no refresh token available' });
+    }
+
+    // Verify refresh token
+    try {
+      const decodedRefresh = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET_KEY);
+      const userId = decodedRefresh.userId;
+
+      // Check if the refresh token exists in the database
+      const result = await pool.query(
+        'SELECT * FROM refresh_tokens WHERE user_id = $1 AND token = $2',
+        [userId, refreshToken]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(403).json({ message: 'Invalid or expired refresh token' });
+      }
+
+      // If refresh token is valid, generate a new access token
+      const newAccessToken = jwt.sign({ userId }, process.env.JWT_SECRET_KEY, { expiresIn: '1h' });
+
+      // Send the new access token in the response
+      res.setHeader('Authorization', `Bearer ${newAccessToken}`);
+      req.userId = userId; // Store the user ID in request for further use
+      next(); // Proceed to the next middleware or route handler
+    } catch (refreshError) {
+      console.error('Error verifying refresh token:', refreshError);
+      return res.status(403).json({ message: 'Invalid or expired refresh token' });
+    }
+  }
+};
+
 // Utility: Generate tokens
 const generateTokens = (userId) => {
   console.log(`Generating tokens for user ID: ${userId}`);
@@ -29,19 +80,34 @@ const storeRefreshToken = async (userId, refreshToken) => {
 
 // Utility: Set refresh token in cookies
 const setRefreshTokenCookie = (res, refreshToken) => {
-  console.log(`Setting refresh token cookie`);
   res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true, // Prevent access from client-side JavaScript
+    secure: process.env.NODE_ENV === 'production',  // Use HTTPS in production
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    sameSite: 'Strict', // Prevent CSRF attacks
+  });
+};
+
+// Utility: Set userId in cookies
+const setUserIdCookie = (res, userId) => {
+  console.log(`Setting userId cookie`);
+  res.cookie("userId", userId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',  // Only over HTTPS in production
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    sameSite: 'Strict', // CSRF protection
   });
 };
 
 const authenticateUser = async (userId, res) => {
   const { accessToken, refreshToken } = generateTokens(userId);
   
+  // Store refresh token in database
   await storeRefreshToken(userId, refreshToken);
+
+  // Set cookies for refresh token and userId
   setRefreshTokenCookie(res, refreshToken);
+  setUserIdCookie(res, userId);
 
   res.status(200).json({ accessToken });
 };
@@ -165,4 +231,4 @@ router.get('/verify-token', async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = { authRoutes: router, verifyAccessToken };

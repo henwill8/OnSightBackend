@@ -35,6 +35,12 @@ router.post('/create-route', upload.single('image'), async (req, res) => {
   
   const { name, description, difficulty, gym_id } = req.body;
   const image = req.file;
+  const userId = req.cookies.userId; // Get userId from cookies
+
+  if (!userId) {
+    console.log('User not authenticated');
+    return res.status(403).json({ error: 'User not authenticated' });
+  }
 
   if (!difficulty || !gym_id || !image) {
     console.log('Missing required fields or image file');
@@ -45,8 +51,8 @@ router.post('/create-route', upload.single('image'), async (req, res) => {
 
   try {
     const result = await pool.query(
-      'INSERT INTO routes (name, description, difficulty, gym_id, image_url, created_at) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *',
-      [name || null, description || null, difficulty, gym_id, image.filename]
+      'INSERT INTO routes (name, description, difficulty, gym_id, creator, image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) RETURNING *',
+      [name || null, description || null, difficulty, gym_id, userId, image.filename] // Include userId in the query
     );
 
     console.log('Route created successfully:', result.rows[0]);
