@@ -122,25 +122,41 @@ const findUserByUsername = async (username) => {
   return result.rows[0];
 };
 
+const findUserByEmail = async (email) => {
+  const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+  return result.rows[0];
+};
+
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    console.log(`Login attempt for user: ${username}`);
-    const user = await findUserByUsername(username);
+    console.log(`Login attempt for: ${username}`);
+
+    // Check if the identifier is an email or a username
+    const isEmail = /\S+@\S+\.\S+/.test(username);  // Regular expression to check for email format
+
+    // Find user by either email or username
+    let user;
+    if (isEmail) {
+      user = await findUserByEmail(username); // Function to find user by email
+    } else {
+      user = await findUserByUsername(username); // Function to find user by username
+    }
 
     if (!user) {
-      console.log(`Invalid username: ${username}`);
-      return res.status(401).json({ message: 'Invalid username or password' });
+      console.log(`Invalid ${isEmail ? 'email' : 'username'}: ${username}`);
+      return res.status(401).json({ message: 'Invalid email/username or password' });
     }
 
+    // Check if the password matches
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      console.log(`Invalid password for user: ${username}`);
-      return res.status(401).json({ message: 'Invalid username or password' });
+      console.log(`Invalid password for ${isEmail ? 'email' : 'username'}: ${username}`);
+      return res.status(401).json({ message: 'Invalid email/username or password' });
     }
 
-    console.log(`Login successful for user: ${username}`);
+    console.log(`Login successful for ${isEmail ? 'email' : 'username'}: ${username}`);
     await authenticateUser(user.id, res);
   } catch (error) {
     console.error('Error logging in user:', error);
@@ -207,6 +223,10 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({ message: 'User created', accessToken });
   } catch (error) {
+    if (error.code === '23505') {  // PostgreSQL duplicate key error code
+      return res.status(400).json({ message: 'Username or email already taken' });
+    }
+  
     console.error('Error registering user:', error);
     res.status(500).json({ message: 'Error creating user' });
   }
