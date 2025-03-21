@@ -233,7 +233,7 @@ router.post('/register', async (req, res) => {
 });
 
 // Verify token
-router.get('/verify-token', async (req, res) => {
+router.get('/verify-token', async (req, res) => { // TODO: I think currently for some reason the access tokens arent expiring??
   const token = req.headers.authorization?.split(' ')[1];
 
   if (!token) {
