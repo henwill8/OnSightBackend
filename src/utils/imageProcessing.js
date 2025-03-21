@@ -1,5 +1,7 @@
 const sharp = require("sharp");
 const ort = require("onnxruntime-node");
+const heicConvert = require("heic-convert");
+const fileType = require("file-type");
 
 /**
  * Preprocess image into ONNX model format
@@ -9,8 +11,30 @@ const ort = require("onnxruntime-node");
 async function preprocessImage(buffer, modelInputShape) {
     const [batch, channels, height, width] = modelInputShape;
 
+    console.log("Preprocessing the image");
+
+    // Get MIME type using file-type library
+    const { ext, mime } = await fileType.fileTypeFromBuffer(buffer);
+    let processedBuffer = buffer;
+
+    // If the MIME type is HEIC/HEIF, we convert it to JPEG
+    if (mime === "image/heic" || mime === "image/heif") {
+        try {
+            console.log("Detected HEIC/HEIF image. Converting to JPEG...");
+            processedBuffer = await heicConvert({
+                buffer,
+                format: "JPEG",
+                quality: 0.9,
+            });
+        } catch (error) {
+            console.warn("HEIC conversion failed, proceeding with original buffer:", error);
+        }
+    } else {
+        console.log("Mime type is not HEIC/HEIF, proceeding with original buffer");
+    }
+
     // Get original image dimensions
-    const rotatedBuffer = await sharp(buffer).rotate().toBuffer();
+    const rotatedBuffer = await sharp(processedBuffer).rotate().toBuffer();
     const metadata = await sharp(rotatedBuffer).metadata();
     const originalWidth = metadata.width;
     const originalHeight = metadata.height;
@@ -20,17 +44,15 @@ async function preprocessImage(buffer, modelInputShape) {
     let resizeWidth, resizeHeight;
 
     if (aspectRatio > 1) {
-        // Landscape image
         resizeWidth = width;
         resizeHeight = Math.round(width / aspectRatio);
     } else {
-        // Portrait or square image
         resizeWidth = Math.round(height * aspectRatio);
         resizeHeight = height;
     }
 
-    // Resize the image and add padding to make it 800x800
-    const image = await sharp(buffer)
+    // Resize the image and add padding
+    const image = await sharp(rotatedBuffer)
         .resize(resizeWidth, resizeHeight)
         .extend({
             top: Math.floor((height - resizeHeight) / 2),
