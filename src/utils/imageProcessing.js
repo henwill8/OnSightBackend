@@ -1,7 +1,7 @@
+// Importing necessary libraries
 const sharp = require("sharp");
 const ort = require("onnxruntime-node");
 const heicConvert = require("heic-convert");
-const fileType = require("file-type");
 
 /**
  * Preprocess image into ONNX model format
@@ -13,8 +13,11 @@ async function preprocessImage(buffer, modelInputShape) {
 
     console.log("Preprocessing the image");
 
+    // Dynamically import file-type
+    const { fileTypeFromBuffer } = await import("file-type");
+
     // Get MIME type using file-type library
-    const { ext, mime } = await fileType.fileTypeFromBuffer(buffer);
+    const { ext, mime } = await fileTypeFromBuffer(buffer);
     let processedBuffer = buffer;
 
     // If the MIME type is HEIC/HEIF, we convert it to JPEG
@@ -66,6 +69,7 @@ async function preprocessImage(buffer, modelInputShape) {
         .raw()
         .toBuffer();
 
+    // Convert the image to a float array
     let floatArray = Float32Array.from(image).map(pixel => pixel / 255.0);
 
     // Convert to NCHW format
