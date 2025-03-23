@@ -1,5 +1,6 @@
 const express = require("express");
 const multer = require("multer");
+const { verifyAccessToken } = require('@/src/routes/auth')
 const { preprocessImage } = require("@/src/utils/imageProcessing");
 const { runModel, extractRawBoundingBoxes, adjustBoundingBoxesToOriginalSize } = require("@/src/utils/model");
 
@@ -7,7 +8,7 @@ const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.post("/predict", upload.single("image"), async (req, res) => {
+router.post("/predict", verifyAccessToken, upload.single("image"), async (req, res) => {
     console.log("Prediction request received!");
     try {
         if (!req.file) {

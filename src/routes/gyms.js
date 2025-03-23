@@ -1,4 +1,5 @@
 const express = require('express');
+const { verifyAccessToken } = require('@/src/routes/auth')
 const pool = require('@/src/db'); // Import the db functions
 
 const router = express.Router();
@@ -63,7 +64,7 @@ router.get('/list-gyms', async (req, res) => {
 });
 
 // Create a new gym
-router.post('/create-gym', async (req, res) => {
+router.post('/create-gym', verifyAccessToken, async (req, res) => { // TODO: add gym owners and staff
   const { name, location } = req.body;
 
   console.log('Received POST request for /create-gym...');

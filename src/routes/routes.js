@@ -3,6 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const pool = require('@/src/db');
+const { verifyAccessToken } = require('@/src/routes/auth')
 const { STORAGE_PATH } = require('@/config');
 
 const router = express.Router();
@@ -30,17 +31,11 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-router.post('/create-route', upload.single('image'), async (req, res) => {
+router.post('/create-route', verifyAccessToken, upload.single('image'), async (req, res) => {
   console.log('Received request to create a route');
   
   const { name, description, difficulty, gym_id } = req.body;
   const image = req.file;
-  const userId = req.cookies.userId; // Get userId from cookies
-
-  if (!userId) {
-    console.log('User not authenticated');
-    return res.status(403).json({ error: 'User not authenticated' });
-  }
 
   if (!difficulty || !gym_id || !image) {
     console.log('Missing required fields or image file');
@@ -52,7 +47,7 @@ router.post('/create-route', upload.single('image'), async (req, res) => {
   try {
     const result = await pool.query(
       'INSERT INTO routes (name, description, difficulty, gym_id, creator, image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) RETURNING *',
-      [name || null, description || null, difficulty, gym_id, userId, image.filename] // Include userId in the query
+      [name || null, description || null, difficulty, gym_id, req.userId, image.filename] // Include userId in the query
     );
 
     console.log('Route created successfully:', result.rows[0]);
