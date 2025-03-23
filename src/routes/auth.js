@@ -8,17 +8,10 @@ const router = express.Router();
 const REFRESH_TOKEN_EXPIRY = 30;  // 30 days
 
 // Cookie configuration constants
-const REFRESH_COOKIE_CONFIG = {
+const COOKIE_CONFIG = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   maxAge: REFRESH_TOKEN_EXPIRY * 24 * 60 * 60 * 1000, // 30 days
-  sameSite: 'Strict'
-};
-
-const ACCESS_COOKIE_CONFIG = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  maxAge: 60 * 60 * 1000, // 1 hour
   sameSite: 'Strict'
 };
 
@@ -77,8 +70,8 @@ const authenticateUser = async (userId, res) => {
   console.log("Setting cookies")
 
   // Set cookies
-  setCookie(res, 'accessToken', accessToken, ACCESS_COOKIE_CONFIG);
-  setCookie(res, 'refreshToken', refreshToken, REFRESH_COOKIE_CONFIG);
+  setCookie(res, 'accessToken', accessToken, COOKIE_CONFIG); // accessToken cookie lasts as long as refresh token so that we can actually check if the JWT is expired
+  setCookie(res, 'refreshToken', refreshToken, COOKIE_CONFIG);
 
   console.log("Successfully set cookies")
 };
@@ -130,29 +123,28 @@ const findUserByEmail = createUserFinder('email');
 // Middleware to verify access token
 const verifyAccessToken = async (req, res, next) => {
   console.log("Verifying access token...")
-  const accessToken = req.cookies.accessToken;
+  const accessToken = req.cookies?.accessToken;
 
   if (!accessToken) {
     console.log("Missing access token")
-    return res.status(401).json({ message: 'No access token' });
+    return res.status(401).json({ message: 'Missing access token' });
+  }
+  
+  const decoded = jwt.decode(accessToken); // Decode without verifying
+
+  if (!decoded || !decoded.exp || Date.now() >= decoded.exp * 1000) {
+    console.log("Access token expired...");
+    return refreshAccessToken(req, res, next);
   }
 
   try {
-    const decoded = jwt.verify(accessToken, process.env.JWT_SECRET_KEY);
-    req.userId = decoded.userId;
-
-    console.log("Access token verified!")
-
-    next(); // Proceed to the next middleware or route handler
+    const verified = jwt.verify(accessToken, process.env.JWT_SECRET_KEY);
+    req.userId = verified.userId;
+    console.log("Access token verified!");
+    return next();
   } catch (error) {
-    console.error('Access token verification failed:', error);
-    
-    if (error.name === 'TokenExpiredError') {
-      // Only attempt to refresh if the token is expired
-      return refreshAccessToken(req, res, next);
-    }
-    
-    return res.status(401).json({ message: 'Invalid access token' }); // Reject other errors
+    console.error("JWT verification error:", error);
+    return res.status(401).json({ message: "Invalid access token" });
   }
 };
 
@@ -184,10 +176,10 @@ const refreshAccessToken = async (req, res, next) => {
     await authenticateUser(decoded.userId, res);
 
     req.userId = decoded.userId;
-    next();
+    return next();
   } catch (error) {
     console.error('Error verifying refresh token:', error);
-    res.status(403).json({ message: 'Invalid or expired refresh token' });
+    return res.status(403).json({ message: 'Invalid or expired refresh token' });
   }
 };
 
