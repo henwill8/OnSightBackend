@@ -74,9 +74,13 @@ const authenticateUser = async (userId, res) => {
   const { accessToken, refreshToken } = generateTokens(userId, deviceId);
   await storeRefreshToken(userId, deviceId, refreshToken);
 
+  console.log("Setting cookies")
+
   // Set cookies
   setCookie(res, 'accessToken', accessToken, ACCESS_COOKIE_CONFIG);
   setCookie(res, 'refreshToken', refreshToken, REFRESH_COOKIE_CONFIG);
+
+  console.log("Successfully set cookies")
 };
 
 /**
@@ -100,15 +104,19 @@ const findUserByEmail = createUserFinder('email');
 
 // Middleware to verify access token
 const verifyAccessToken = async (req, res, next) => {
+  console.log("Verifying access token...")
   const accessToken = req.cookies.accessToken;
 
   if (!accessToken) {
+    console.log("Missing access token")
     return res.status(401).json({ message: 'No access token' });
   }
 
   try {
     const decoded = jwt.verify(accessToken, process.env.JWT_SECRET_KEY);
     req.userId = decoded.userId;
+
+    console.log("Access token verified!")
 
     next(); // Proceed to the next middleware or route handler
   } catch (error) {
@@ -144,6 +152,8 @@ const refreshAccessToken = async (req, res, next) => {
       console.log(`Invalid refresh token for user ID: ${decoded.userId}`);
       return res.status(403).json({ message: 'Invalid refresh token' });
     }
+
+    console.log("Found valid refresh token!")
 
     console.log(`Generating new tokens for user ID: ${decoded.userId}`);
     await authenticateUser(decoded.userId, res);
@@ -225,6 +235,8 @@ router.post('/login', async (req, res) => {
 
     console.log(`Login successful for ${isEmail ? 'email' : 'username'}: ${username}`);
     await authenticateUser(user.id, res);
+
+    res.status(200).json({ message: 'Successful log in' })
   } catch (error) {
     console.error('Error logging in user:', error);
     res.status(500).json({ message: 'Error logging in' });
