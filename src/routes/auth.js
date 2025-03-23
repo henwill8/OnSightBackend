@@ -95,6 +95,31 @@ const createUserFinder = (field) => {
   };
 };
 
+// Delete expired refresh tokens
+const deleteExpiredRefreshTokens = async () => {
+  console.log('Checking for expired refresh tokens...');
+
+  try {
+    // Find expired refresh tokens
+    const result = await pool.query(
+      'SELECT * FROM refresh_tokens WHERE expires_at < NOW()'
+    );
+
+    const expiredTokens = result.rows;
+    expiredTokens.forEach(async (token) => {
+      await pool.query('DELETE FROM refresh_tokens WHERE id = $1', [token.id]);
+      console.log(`Deleted expired refresh token for device ID: ${token.device_id}`);
+    });
+
+    console.log('Expired refresh tokens cleanup completed');
+  } catch (error) {
+    console.error('Error deleting expired refresh tokens:', error);
+  }
+};
+
+// Delete expired refresh tokens every 24 hours
+setInterval(deleteExpiredRefreshTokens, 86400000);
+
 // User finder methods
 const findUserById = createUserFinder('id');
 const findUserByUsername = createUserFinder('username');

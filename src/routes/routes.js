@@ -89,4 +89,36 @@ router.get('/get-routes/:gymId', async (req, res) => {
   }
 });
 
+// Function to delete orphan images in storage
+const deleteOrphanImages = async () => {
+  console.log('Checking for orphan images...');
+
+  try {
+    // Get list of image filenames from the database
+    const result = await pool.query('SELECT image_url FROM routes');
+    const imageUrls = result.rows.map(row => row.image_url.split('/').pop()); // Get filenames only
+
+    // Get list of all files in the storage directory
+    const storagePath = path.join(STORAGE_PATH, 'routeImages');
+    const filesInStorage = fs.readdirSync(storagePath);
+
+    // Find images in storage that aren't in the database
+    const orphanImages = filesInStorage.filter(file => !imageUrls.includes(file));
+
+    // Delete orphan images
+    orphanImages.forEach((image) => {
+      const imagePath = path.join(storagePath, image);
+      fs.unlinkSync(imagePath);
+      console.log(`Deleted orphan image: ${image}`);
+    });
+
+    console.log('Orphan images cleanup completed');
+  } catch (error) {
+    console.error('Error deleting orphan images:', error);
+  }
+};
+
+// Run cleanup images task every 24 hours
+setInterval(deleteOrphanImages, 86400000);
+
 module.exports = router;
