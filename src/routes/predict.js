@@ -23,7 +23,7 @@ async function processImagePrediction(reqFileBuffer) {
 
     console.log("Made " + boundingBoxes.length + " predictions!");
 
-    return boundingBoxes;
+    return { predictions: boundingBoxes, imageSize: { width: originalWidth, height: originalHeight }};
   } catch (error) {
     console.error("Prediction error:", error);
     throw new Error(error.message);
