@@ -122,7 +122,7 @@ const findUserByEmail = createUserFinder('email');
 
 // Middleware to verify access token
 const verifyAccessToken = async (req, res, next) => {
-  console.log("Verifying access token...")
+  console.log(`Verifying access token for protected path: ${req.originalUrl}`);
   const accessToken = req.cookies?.accessToken;
 
   if (!accessToken) {

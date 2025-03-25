@@ -5,10 +5,11 @@ const cookieParser = require("cookie-parser");
 require('dotenv').config();
 require('module-alias/register');
 
-const { authRoutes, verifyAccessToken } = require("@/src/routes/auth"); // Import the auth functions
+const { authRoutes } = require("@/src/routes/auth");
 const predictRoutes = require("@/src/routes/predict");
-const routesRoutes = require("@/src/routes/routes"); // Climbing routes route
+const routesRoutes = require("@/src/routes/routes");
 const gymsRoutes = require("@/src/routes/gyms");
+const jobsRoutes = require("@/src/routes/jobs");
 
 const app = express();
 app.use(cors());
@@ -20,6 +21,7 @@ app.use('/auth', authRoutes);
 app.use("/api", predictRoutes);
 app.use("/api", routesRoutes);
 app.use("/api", gymsRoutes);
+app.use("/api", jobsRoutes);
 
 // Route for getting the status of the server
 app.get("/", (req, res) => {
