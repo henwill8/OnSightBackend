@@ -5,33 +5,16 @@ const pool = require('@/src/db');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 
-const REFRESH_TOKEN_EXPIRY = 30;  // 30 days
-
-// Cookie configuration constants
-const COOKIE_CONFIG = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  maxAge: REFRESH_TOKEN_EXPIRY * 24 * 60 * 60 * 1000, // 30 days
-  sameSite: 'Strict'
-};
+const ACCESS_TOKEN_EXPIRY = 60 * 60;  // 1 hour
+const REFRESH_TOKEN_EXPIRY = 30 * 24 * 60 * 60;  // 30 days
 
 // ===== UTILITY FUNCTIONS =====
-
-/**
- * Sets a cookie with the provided name, value and standard security settings
- * @param {Object} res - Express response object
- * @param {String} name - Cookie name
- * @param {String} value - Cookie value
- */
-const setCookie = (res, name, value, config) => {
-  res.cookie(name, value, config);
-};
 
 // Utility: Generate tokens
 const generateTokens = (userId, deviceId) => {
   console.log(`Generating tokens for user ID: ${userId}`);
-  const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET_KEY, { expiresIn: '1h' });
-  const refreshToken = jwt.sign({ userId, deviceId }, process.env.JWT_REFRESH_SECRET_KEY, { expiresIn: REFRESH_TOKEN_EXPIRY * 24 * 60 * 60 }); // 30 days
+  const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET_KEY, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  const refreshToken = jwt.sign({ userId, deviceId }, process.env.JWT_REFRESH_SECRET_KEY, { expiresIn: REFRESH_TOKEN_EXPIRY });
   return { accessToken, refreshToken };
 };
 
@@ -42,8 +25,7 @@ const storeRefreshToken = async (userId, deviceId, refreshToken) => {
     await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [userId]);
 
     // The expiration date is already handled for the client with the cookie expiration but storing the expiration for the server is still useful
-    const refreshTokenExpiry = new Date();
-    refreshTokenExpiry.setDate(refreshTokenExpiry.getDate() + REFRESH_TOKEN_EXPIRY);
+    const refreshTokenExpiry = new Date(Date.now() + REFRESH_TOKEN_EXPIRY * 1000);
 
     await pool.query(
       'INSERT INTO refresh_tokens (user_id, device_id, token, expires_at) VALUES ($1, $2, $3, $4)',
@@ -69,9 +51,18 @@ const authenticateUser = async (userId, res) => {
 
   console.log("Setting cookies")
 
-  // Set cookies
-  setCookie(res, 'accessToken', accessToken, COOKIE_CONFIG); // accessToken cookie lasts as long as refresh token so that we can actually check if the JWT is expired
-  setCookie(res, 'refreshToken', refreshToken, COOKIE_CONFIG);
+  res.cookie('accessToken', accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: ACCESS_TOKEN_EXPIRY * 1000, // 1000 to convert to milliseconds
+    sameSite: 'Strict'
+  });
+   res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: REFRESH_TOKEN_EXPIRY * 1000,
+    sameSite: 'Strict'
+  });
 
   console.log("Successfully set cookies")
 };
@@ -126,15 +117,8 @@ const verifyAccessToken = async (req, res, next) => {
   const accessToken = req.cookies?.accessToken;
 
   if (!accessToken) {
-    console.log("Missing access token")
-    return res.status(401).json({ message: 'Missing access token' });
-  }
-  
-  const decoded = jwt.decode(accessToken); // Decode without verifying
-
-  if (!decoded || !decoded.exp || Date.now() >= decoded.exp * 1000) {
-    console.log("Access token expired...");
-    return refreshAccessToken(req, res, next);
+    console.log("Missing access token");
+    return refreshAccessToken(req, res, next); // attempt to refresh access token if it is missing/expired
   }
 
   try {
