@@ -39,7 +39,7 @@ const generateTokens = (userId, deviceId) => {
 const storeRefreshToken = async (userId, deviceId, refreshToken) => {
   try {
     console.log(`Storing refresh token for user ID: ${userId}`);
-    await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1 AND device_id = $2', [userId, deviceId]);
 
     // The expiration date is already handled for the client with the cookie expiration but storing the expiration for the server is still useful
     const refreshTokenExpiry = new Date(Date.now() + REFRESH_TOKEN_EXPIRY * 1000);
@@ -67,9 +67,6 @@ const authenticateUser = async (userId, res) => {
   await storeRefreshToken(userId, deviceId, refreshToken);
 
   console.log("Setting cookies")
-
-  console.log(accessToken)
-  console.log(refreshToken)
 
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
@@ -136,8 +133,6 @@ const verifyAccessToken = async (req, res, next) => {
   console.log(`Verifying access token for protected path: ${req.originalUrl}`);
   const accessToken = req.cookies?.accessToken;
 
-  console.log(accessToken)
-
   if (!accessToken) {
     console.log("Missing access token");
     return refreshAccessToken(req, res, next); // attempt to refresh access token if it is missing/expired
@@ -150,7 +145,6 @@ const verifyAccessToken = async (req, res, next) => {
     return next();
   } catch (error) {
     console.error("JWT verification error:", error);
-    // return res.status(404).json({ message: "ah" });
     return refreshAccessToken(req, res, next);
   }
 };
@@ -159,8 +153,6 @@ const refreshAccessToken = async (req, res, next) => {
   console.log("Refreshing user access token");
   const refreshToken = req.cookies.refreshToken;
 
-  console.log(refreshToken)
-
   if (!refreshToken) {
     console.log('Missing refresh token');
     return res.status(401).json({ message: 'Missing refresh token' });
@@ -168,6 +160,7 @@ const refreshAccessToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET_KEY);
+    console.log("Decoded ID:", decoded.deviceId)
 
     const result = await pool.query(
       'SELECT * FROM refresh_tokens WHERE user_id = $1 AND device_id = $2 AND token = $3',
