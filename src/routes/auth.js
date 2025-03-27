@@ -5,16 +5,33 @@ const pool = require('@/src/db');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 
-const ACCESS_TOKEN_EXPIRY = 60 * 60;  // 1 hour
-const REFRESH_TOKEN_EXPIRY = 30 * 24 * 60 * 60;  // 30 days
+const ACCESS_TOKEN_EXPIRY = 60 * 60;  // 1 hour (in seconds)
+const REFRESH_TOKEN_EXPIRY = 30 * 24 * 60 * 60;  // 30 days (in seconds)
 
 // ===== UTILITY FUNCTIONS =====
 
 // Utility: Generate tokens
 const generateTokens = (userId, deviceId) => {
   console.log(`Generating tokens for user ID: ${userId}`);
+
+  // Generate the access token
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET_KEY, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  
+  // Decode the access token to get the expiry time
+  const decodedAccessToken = jwt.decode(accessToken);
+  const accessExpiryTimestamp = decodedAccessToken.exp * 1000;  // Convert to milliseconds
+  const accessExpiryDate = new Date(accessExpiryTimestamp).toLocaleString();  // Convert to human-readable format
+  console.log(`Access Token Expiry: ${accessExpiryDate}`);
+
+  // Generate the refresh token
   const refreshToken = jwt.sign({ userId, deviceId }, process.env.JWT_REFRESH_SECRET_KEY, { expiresIn: REFRESH_TOKEN_EXPIRY });
+
+  // Decode the refresh token to get the expiry time
+  const decodedRefreshToken = jwt.decode(refreshToken);
+  const refreshExpiryTimestamp = decodedRefreshToken.exp * 1000;  // Convert to milliseconds
+  const refreshExpiryDate = new Date(refreshExpiryTimestamp).toLocaleString();  // Convert to human-readable format
+  console.log(`Refresh Token Expiry: ${refreshExpiryDate}`);
+
   return { accessToken, refreshToken };
 };
 
@@ -50,6 +67,9 @@ const authenticateUser = async (userId, res) => {
   await storeRefreshToken(userId, deviceId, refreshToken);
 
   console.log("Setting cookies")
+
+  console.log(accessToken)
+  console.log(refreshToken)
 
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
@@ -116,6 +136,8 @@ const verifyAccessToken = async (req, res, next) => {
   console.log(`Verifying access token for protected path: ${req.originalUrl}`);
   const accessToken = req.cookies?.accessToken;
 
+  console.log(accessToken)
+
   if (!accessToken) {
     console.log("Missing access token");
     return refreshAccessToken(req, res, next); // attempt to refresh access token if it is missing/expired
@@ -128,13 +150,16 @@ const verifyAccessToken = async (req, res, next) => {
     return next();
   } catch (error) {
     console.error("JWT verification error:", error);
-    return res.status(401).json({ message: "Invalid access token" });
+    // return res.status(404).json({ message: "ah" });
+    return refreshAccessToken(req, res, next);
   }
 };
 
 const refreshAccessToken = async (req, res, next) => {
   console.log("Refreshing user access token");
   const refreshToken = req.cookies.refreshToken;
+
+  console.log(refreshToken)
 
   if (!refreshToken) {
     console.log('Missing refresh token');
