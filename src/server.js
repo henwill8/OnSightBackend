@@ -16,6 +16,8 @@ app.use(cors());
 app.use(cookieParser()); // Add cookie-parser middleware
 app.use(express.json()); // Middleware for parsing JSON request bodies
 
+app.set('trust proxy', true);
+
 app.use('/auth', authRoutes);
 
 app.use("/api", predictRoutes);
