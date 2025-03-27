@@ -58,6 +58,11 @@ router.post('/create-route', verifyAccessToken, upload.single('image'), async (r
   }
 });
 
+router.use('/routeImages', (req, res, next) => {
+  console.log(`Accessed /routeImages: ${req.method} ${req.originalUrl} from ${req.ip}`);
+  next();
+});
+
 // Serve static files from routeImages
 router.use('/routeImages', express.static(path.join(STORAGE_PATH, 'routeImages')));
 

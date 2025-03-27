@@ -6,14 +6,8 @@ const router = express.Router();
 
 const getAllGyms = async () => {
   try {
-    console.log('Fetching all gyms from the database...');
     const result = await pool.query('SELECT * FROM gyms');
-    console.log(`Fetched ${result.rows.length} gyms.`);
-
-    result.rows.forEach((gym, index) => {
-      console.log(`Gym ${index + 1}: ID: ${gym.id}, Name: ${gym.name}, Location: ${gym.location}`);
-    });
-
+    
     return result.rows;
   } catch (error) {
     console.error('Error fetching gyms:', error);
@@ -52,13 +46,12 @@ const getGymById = async (id) => {
 
 // Get the list of all gyms
 router.get('/list-gyms', async (req, res) => {
-  console.log('Received GET request for /list-gyms...');
   try {
     const gyms = await getAllGyms();
     console.log('Sending response with list of gyms...');
     res.status(200).json({ gyms });
   } catch (error) {
-    console.error('Error in /list-gyms route:', error);
+    console.error('Error fetching gyms:', error);
     res.status(500).json({ error: 'Error fetching gyms' });
   }
 });

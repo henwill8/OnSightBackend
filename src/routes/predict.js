@@ -40,7 +40,6 @@ router.post("/predict", verifyAccessToken, upload.single("image"), async (req, r
     // Create a job for image processing and prediction
     const jobId = createJob(() => processImagePrediction(req.file.buffer));
 
-    console.log("response")
     // Respond to the user with the job ID to track progress
     res.json({ jobId });
 
