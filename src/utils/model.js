@@ -10,7 +10,6 @@ let modelPath = path.join(process.cwd(), './models/model.onnx');
 function checkModelSize(filePath) {
   return new Promise((resolve, reject) => {
     fs.stat(filePath, (err, stats) => {
-      console.log("Checking file size at " + filePath);
       if (err) {
         console.log("Error checking file size: " + err);
         resolve(0);
@@ -27,7 +26,6 @@ async function runModel(inputTensor) {
   try {
     const modelSize = await checkModelSize(modelPath);
     if (modelSize < 10000) {
-      console.log("Switching model path to volume storage");
       modelPath = STORAGE_PATH + '/models/model.onnx';
     }
 
@@ -36,10 +34,8 @@ async function runModel(inputTensor) {
     // Log memory and resource usage before creating the session
     console.log("Creating session...");
     const session = await ort.InferenceSession.create(modelPath);
-    console.log("Session created successfully.");
 
     const inputName = session.inputNames[0];
-    console.log("Input name: ", inputName);
 
     const result = await session.run({ [inputName]: inputTensor });
     console.log("Model run successful.");
