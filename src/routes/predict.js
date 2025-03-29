@@ -12,11 +12,13 @@ const upload = multer({ storage: multer.memoryStorage() });
 async function processImagePrediction(reqFileBuffer) {
   try {
     const { tensor, originalWidth, originalHeight, paddedWidth, paddedHeight } =
-      await preprocessImage(reqFileBuffer, [1, 3, 800, 800]);
+      await preprocessImage(reqFileBuffer, [3, 800, 1202]);
 
     console.log("Image is " + originalWidth + "x" + originalHeight);
 
     const outputs = await runModel(tensor);
+
+    console.log(outputs)
     
     const rawBoxes = extractRawBoundingBoxes(outputs);
     const boundingBoxes = adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeight, paddedWidth, paddedHeight);

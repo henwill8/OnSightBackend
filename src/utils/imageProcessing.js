@@ -9,7 +9,7 @@ const heicConvert = require("heic-convert");
  * @param modelInputShape - Expected shape of the model [batch, channels, height, width]
  */
 async function preprocessImage(buffer, modelInputShape) {
-    const [batch, channels, height, width] = modelInputShape;
+    const [channels, height, width] = modelInputShape;
 
     console.log("Preprocessing the image");
 
@@ -65,7 +65,7 @@ async function preprocessImage(buffer, modelInputShape) {
             background: { r: 0, g: 0, b: 0, alpha: 0 }
         })
         .removeAlpha()
-        .toColorspace("srgb")
+        .toColorspace("bgr")
         .raw()
         .toBuffer();
 
@@ -81,7 +81,7 @@ async function preprocessImage(buffer, modelInputShape) {
     }
 
     return { 
-        tensor: new ort.Tensor("float32", new Float32Array(transposed), [batch, channels, height, width]),
+        tensor: new ort.Tensor("float32", new Float32Array(transposed), [channels, height, width]),
         originalWidth,
         originalHeight,
         paddedWidth: resizeWidth,

@@ -50,35 +50,38 @@ async function runModel(inputTensor) {
  * Extract raw bounding boxes from model output
  */
 function extractRawBoundingBoxes(data) {
-  const confidences = data["3054"].cpuData;
-  const types = data["3055"].cpuData;
-  const boxes = data["3076"].cpuData;
+  // Extract confidence, types, and bounding box data
+  const confidences = data["value"].cpuData;
+  const types = data["value.3"].cpuData; // Assuming types are in "value.3"
+  const boxes = data["boxes.27"].cpuData; // Bounding box data from 'boxes.27'
 
-  if (!confidences || !boxes) {
-    console.error("Missing bounding box or confidence data");
+  if (!confidences || !boxes || !types) {
+    console.error("Missing bounding box, confidence, or type data");
     return [];
   }
 
-  const confidenceKeys = Object.keys(confidences);
+  // Example of how data is structured; we assume that the boxes are in a 1D array (flat structure).
+  const boxCount = boxes.length / 4; // Assuming each box has 4 elements: [x1, y1, x2, y2]
 
-  // Extract raw boxes where confidence > 0.5 and type = 1 (climbing hold)
-  return confidenceKeys
-    .map((key) => {
-      const confidence = confidences[key];
-      const type = types[key];
-      const boxStart = parseInt(key) * 4;
+  // Loop through each bounding box
+  const boundingBoxes = [];
+  for (let i = 0; i < boxCount; i++) {
+    const confidence = confidences[i];
+    const type = types[i]; // Assuming types are indexed similarly to the bounding boxes
+    const boxStart = i * 4;
 
-      if (confidence >= 0.25 && Number(type) === 1) {
-        const x1 = boxes[boxStart];
-        const y1 = boxes[boxStart + 1];
-        const x2 = boxes[boxStart + 2];
-        const y2 = boxes[boxStart + 3];
+    // Check if confidence is above threshold and the type is the class you're interested in (e.g., 1 for climbing holds)
+    if (confidence >= 0.25) {
+      const x1 = boxes[boxStart];
+      const y1 = boxes[boxStart + 1];
+      const x2 = boxes[boxStart + 2];
+      const y2 = boxes[boxStart + 3];
 
-        return { x1, y1, x2, y2 };
-      }
-      return null;
-    })
-    .filter(box => box !== null);
+      boundingBoxes.push({ x1, y1, x2, y2 });
+    }
+  }
+
+  return boundingBoxes;
 }
 
 /**
