@@ -148,6 +148,7 @@ const refreshAccessToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET_KEY);
+    console.log({ decoded, refreshToken })
 
     const result = await pool.query(
       'SELECT * FROM refresh_tokens WHERE user_id = $1 AND device_id = $2 AND token = $3',
