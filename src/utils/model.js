@@ -50,9 +50,9 @@ async function runModel(inputTensor) {
  * Extract raw bounding boxes from model output
  */
 function extractRawBoundingBoxes(data) {
-  const confidences = data["3054"].cpuData;
-  const types = data["3055"].cpuData;
-  const boxes = data["3076"].cpuData;
+  const confidences = data["scores"].cpuData;
+  const types = data["labels"].cpuData;
+  const boxes = data["boxes"].cpuData;
 
   if (!confidences || !boxes) {
     console.error("Missing bounding box or confidence data");
@@ -68,7 +68,7 @@ function extractRawBoundingBoxes(data) {
       const type = types[key];
       const boxStart = parseInt(key) * 4;
 
-      if (confidence >= 0.25 && Number(type) === 1) {
+      if (confidence >= 0.4 && Number(type) == 1) {
         const x1 = boxes[boxStart];
         const y1 = boxes[boxStart + 1];
         const x2 = boxes[boxStart + 2];
@@ -88,8 +88,8 @@ function adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeig
   const scaleX = originalWidth / paddedWidth;
   const scaleY = originalHeight / paddedHeight;
 
-  const xOffset = (800 - paddedWidth) / 2;
-  const yOffset = (800 - paddedHeight) / 2;
+  const xOffset = (1280 - paddedWidth) / 2;
+  const yOffset = (1280 - paddedHeight) / 2;
 
   return rawBoxes
     .map(({ x1, y1, x2, y2 }) => {
