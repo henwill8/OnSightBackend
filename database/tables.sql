@@ -31,8 +31,7 @@ CREATE TABLE routes (
     description VARCHAR(255),
     difficulty VARCHAR(10) NOT NULL,
     gym_id UUID NOT NULL REFERENCES gyms(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    setter VARCHAR(100) NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    creator UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     average_rating DECIMAL(3,2) DEFAULT 0,
     image_url TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
