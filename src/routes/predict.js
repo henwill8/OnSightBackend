@@ -11,19 +11,17 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Function to handle the image processing and predictions
 async function processImagePrediction(reqFileBuffer) {
   try {
-    const { tensor, originalWidth, originalHeight, paddedWidth, paddedHeight } =
-      await preprocessImage(reqFileBuffer, [1, 3, 1280, 1280]);
-
-    console.log("Image is " + originalWidth + "x" + originalHeight);
+    const { tensor, imageWidth, imageHeight } = await preprocessImage(reqFileBuffer, [1, 3]);
 
     const outputs = await runModel(tensor);
 
     const rawBoxes = extractRawBoundingBoxes(outputs);
-    const boundingBoxes = adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeight, paddedWidth, paddedHeight);
+    // const boundingBoxes = adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeight, paddedWidth, paddedHeight);
 
-    console.log("Made " + boundingBoxes.length + " predictions!");
+    console.log("Made " + rawBoxes.length + " predictions!");
+    console.log(rawBoxes)
 
-    return { predictions: boundingBoxes, imageSize: { width: originalWidth, height: originalHeight }};
+    return { predictions: rawBoxes, imageSize: { width: imageWidth, height: imageHeight }};
   } catch (error) {
     console.error("Prediction error:", error);
     throw new Error(error.message);
