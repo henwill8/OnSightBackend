@@ -2,7 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const { verifyAccessToken } = require('@/src/routes/auth');
 const { preprocessImage } = require("@/src/utils/imageProcessing");
-const { runModel, extractRawBoundingBoxes, adjustBoundingBoxesToOriginalSize } = require("@/src/utils/model");
+const { runModel, extractCoordinates } = require("@/src/utils/model");
 const { createJob, getJobStatus } = require("@/src/utils/jobQueue");
 
 const router = express.Router();
@@ -15,13 +15,11 @@ async function processImagePrediction(reqFileBuffer) {
 
     const outputs = await runModel(tensor);
 
-    const rawBoxes = extractRawBoundingBoxes(outputs);
-    // const boundingBoxes = adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeight, paddedWidth, paddedHeight);
+    const predictions = extractCoordinates(outputs);
 
-    console.log("Made " + rawBoxes.length + " predictions!");
-    console.log(rawBoxes)
+    console.log("Made " + predictions.length + " predictions!");
 
-    return { predictions: rawBoxes, imageSize: { width: imageWidth, height: imageHeight }};
+    return { predictions: predictions, imageSize: { width: imageWidth, height: imageHeight }};
   } catch (error) {
     console.error("Prediction error:", error);
     throw new Error(error.message);

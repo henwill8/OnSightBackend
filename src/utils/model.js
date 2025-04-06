@@ -49,7 +49,7 @@ async function runModel(inputTensor) {
 /**
  * Extract raw bounding boxes from model output
  */
-function extractRawBoundingBoxes(data) {
+function extractCoordinates(data) {
   const confidences = data["scores"].cpuData;
   const types = data["labels"].cpuData;
   const boxes = data["boxes"].cpuData;
@@ -69,41 +69,22 @@ function extractRawBoundingBoxes(data) {
       const boxStart = parseInt(key) * 4;
 
       if (confidence >= 0.4 && Number(type) == 1) {
-        const x1 = boxes[boxStart];
-        const y1 = boxes[boxStart + 1];
-        const x2 = boxes[boxStart + 2];
-        const y2 = boxes[boxStart + 3];
+        const x_min = boxes[boxStart];
+        const y_min = boxes[boxStart + 1];
+        const x_max = boxes[boxStart + 2];
+        const y_max = boxes[boxStart + 3];
 
-        return [ x1, y1, x2 - x1, y2 - y1 ];
+        // Convert to polygon format (x1, y1, x2, y2, x3, y3...) for better compatibility with object segmentation models
+        return [
+          x_min, y_min,
+          x_max, y_min,
+          x_max, y_max,
+          x_min, y_max
+        ];
       }
       return null;
     })
     .filter(box => box !== null);
 }
 
-/**
- * Adjust bounding boxes to match original image size
- */
-function adjustBoundingBoxesToOriginalSize(rawBoxes, originalWidth, originalHeight, paddedWidth, paddedHeight) {
-  const scaleX = originalWidth / paddedWidth;
-  const scaleY = originalHeight / paddedHeight;
-
-  const xOffset = (1280 - paddedWidth) / 2;
-  const yOffset = (1280 - paddedHeight) / 2;
-
-  return rawBoxes
-    .map(({ x1, y1, x2, y2 }) => {
-      const x = Math.max(0, (x1 - xOffset) * scaleX);
-      const y = Math.max(0, (y1 - yOffset) * scaleY);
-      const width = Math.min(originalWidth, (x2 - x1) * scaleX);
-      const height = Math.min(originalHeight, (y2 - y1) * scaleY);
-
-      if (width > 0 && height > 0) {
-        return [x, y, width, height];
-      }
-      return null;
-    })
-    .filter(box => box !== null);
-}
-
-module.exports = { runModel, extractRawBoundingBoxes, adjustBoundingBoxesToOriginalSize };
+module.exports = { runModel, extractCoordinates };
