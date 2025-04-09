@@ -61,37 +61,6 @@ const listRoutes = (app) => {
   });
 };
 
-const fs = require('fs');
-const path = require('path');
-
-function logFilesAndDirectories(dirPath) {
-  fs.readdir(dirPath, (err, files) => {
-    if (err) {
-      console.error(`Unable to read directory: ${dirPath}`, err);
-      return;
-    }
-
-    files.forEach((file) => {
-      const fullPath = path.join(dirPath, file);
-      
-      // Check if the path is a directory or a file
-      fs.stat(fullPath, (err, stats) => {
-        if (err) {
-          console.error(`Unable to stat path: ${fullPath}`, err);
-          return;
-        }
-
-        if (stats.isDirectory()) {
-          console.log(`Directory: ${fullPath}`);
-          // Recursively call the function if it's a directory
-          logFilesAndDirectories(fullPath);
-        } else {
-          console.log(`File: ${fullPath}`);
-        }
-      });
-    });
-  });
-}
 
 // Start the server
 const port = process.env.PORT || 5000;
@@ -99,6 +68,4 @@ app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 
   listRoutes(app)
-
-  logFilesAndDirectories("/app")
 });
