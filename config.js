@@ -1,6 +1,6 @@
 const path = require('path');
 
-const MODEL_VOLUME = "/app/storage/model";
+const MODEL_VOLUME = "/app/model";
 
 // S3 path configurations
 const S3_CONFIG = {

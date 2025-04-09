@@ -12,6 +12,8 @@ async function runModel(inputTensor) {
   try {
     const modelPath = process.env.NODE_ENV == "development" ? devModelPath : prodModelPath;
 
+    console.log(devModelPath, prodModelPath);
+
     console.log("Attempting to create onnxruntime session at " + modelPath);
     
     // Log memory and resource usage before creating the session
