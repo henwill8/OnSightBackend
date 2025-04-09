@@ -1,11 +1,16 @@
 const path = require('path');
 
-const storage_volume = "/app/storage/storage";
+const MODEL_VOLUME = "/app/model";
 
-const STORAGE_PATH = process.env.NODE_ENV === 'development'
-  ? path.resolve(__dirname, 'storage')  // Path for development
-  : storage_volume;  // Default path for production on Railway
+// S3 path configurations
+const S3_CONFIG = {
+  // NOT FULL PATH, IN USE GYM ID IS ADDED IN FRONT
+  routeImagesPath: '/routes/images',
+  routeTemplatesPath: '/routes/templates',
+  routeAnnotationsPath: '/routes/annotations'
+};
 
 module.exports = {
-  STORAGE_PATH,
+  MODEL_VOLUME,
+  S3_CONFIG
 };

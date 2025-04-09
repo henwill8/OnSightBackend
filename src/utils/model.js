@@ -1,33 +1,16 @@
-const fs = require('fs');
 const path = require('path');
 const ort = require("onnxruntime-node");
-const { STORAGE_PATH } = require('@/config');
+const { MODEL_VOLUME } = require('@/config');
 
-// File path to the model
-let modelPath = path.join(process.cwd(), './models/model.onnx');
+require('dotenv').config();
 
-// Check file size before loading the model
-function checkModelSize(filePath) {
-  return new Promise((resolve, reject) => {
-    fs.stat(filePath, (err, stats) => {
-      if (err) {
-        console.log("Error checking file size: " + err);
-        resolve(0);
-      } else {
-        const fileSizeInBytes = stats.size;
-        console.log(`Model file size: ${fileSizeInBytes} bytes`);
-        resolve(fileSizeInBytes);
-      }
-    });
-  });
-}
+// File path to the object detection model
+const devModelPath = path.join(process.cwd(), './models/model.onnx');
+const prodModelPath = path.join(MODEL_VOLUME, '/model.onnx');
 
 async function runModel(inputTensor) {
   try {
-    const modelSize = await checkModelSize(modelPath);
-    if (modelSize < 10000) {
-      modelPath = STORAGE_PATH + '/models/model.onnx';
-    }
+    const modelPath = process.env.NODE_ENV == "development" ? devModelPath : prodModelPath;
 
     console.log("Attempting to create onnxruntime session at " + modelPath);
     

@@ -10,6 +10,7 @@ const predictRoutes = require("@/src/routes/predict");
 const routesRoutes = require("@/src/routes/routes");
 const gymsRoutes = require("@/src/routes/gyms");
 const jobsRoutes = require("@/src/routes/jobs");
+const s3Routes = require("@/src/routes/s3Assets");
 
 const app = express();
 app.use(cors());
@@ -24,6 +25,7 @@ app.use("/api", predictRoutes);
 app.use("/api", routesRoutes);
 app.use("/api", gymsRoutes);
 app.use("/api", jobsRoutes);
+app.use("/api", s3Routes);
 
 // Route for getting the status of the server
 app.get("/", (req, res) => {
