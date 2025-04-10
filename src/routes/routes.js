@@ -12,6 +12,10 @@ const router = express.Router();
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+// Generates the full image url based off the s3 bucket key
+function getRouteImageUrl(req, imageKey) {
+  return `${req.protocol}://${req.get('host')}/api/s3Assets/${imageKey}`;
+}
 
 router.post('/create-route', verifyAccessToken, upload.single('image'), async (req, res) => {
   console.log('Received request to create a route');
@@ -28,12 +32,12 @@ router.post('/create-route', verifyAccessToken, upload.single('image'), async (r
 
   try {
     const extension = path.extname(image.originalname);
-    const routeImagePath = path.posix.join(gym_id, S3_CONFIG.routeImagesPath, `route-${Date.now()}-${Math.round(Math.random() * 1E9)}${extension}`);
+    const routeImageKey = path.posix.join(gym_id, S3_CONFIG.routeImagesPath, `route-${Date.now()}-${Math.round(Math.random() * 1E9)}${extension}`);
 
     // Upload image to S3
     const s3Params = new PutObjectCommand({
       Bucket: process.env.AWS_BUCKET_NAME,
-      Key: routeImagePath,
+      Key: routeImageKey,
       Body: image.buffer,  // Buffer from multer memory storage
       ContentType: image.mimetype,
     });
@@ -42,12 +46,10 @@ router.post('/create-route', verifyAccessToken, upload.single('image'), async (r
 
     console.log('File uploaded to S3:', s3Response);
 
-    const routeImageURL = path.posix.join(`${req.protocol}://${req.get('host')}/api/s3Assets`, routeImagePath);
-
     // Save route info to the database
     const result = await pool.query(
-      'INSERT INTO routes (name, description, difficulty, gym_id, creator, image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) RETURNING *',
-      [name || null, description || null, difficulty, gym_id, req.userId, routeImageURL]
+      'INSERT INTO routes (name, description, difficulty, gym_id, creator, image_key, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) RETURNING *',
+      [name || null, description || null, difficulty, gym_id, req.userId, routeImageKey]
     );
 
     console.log('Route created successfully:', result.rows[0]);
@@ -77,7 +79,7 @@ router.get('/get-routes/:gymId', async (req, res) => {
 
     const routes = result.rows.map(route => ({
       ...route,
-      image_url: route.image_url
+      image_url: getRouteImageUrl(req, route.image_key)
     }));
 
     console.log(`Found ${routes.length} routes for gym ID ${gymId}`);
