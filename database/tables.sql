@@ -33,7 +33,7 @@ CREATE TABLE routes (
     gym_id UUID NOT NULL REFERENCES gyms(id) ON DELETE CASCADE,
     creator UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     average_rating DECIMAL(3,2) DEFAULT 0,
-    image_url TEXT NOT NULL,
+    image_key TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
