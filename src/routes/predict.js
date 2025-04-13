@@ -1,29 +1,45 @@
 const express = require("express");
 const multer = require("multer");
 const { verifyAccessToken } = require('@/src/routes/auth');
-const { preprocessImage } = require("@/src/utils/imageProcessing");
-const { runModel, extractCoordinates } = require("@/src/utils/model");
 const { createJob, getJobStatus } = require("@/src/utils/jobQueue");
+const path = require('path');
+const { Worker } = require('worker_threads');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+const imageSize = 1024;
+const sharp = require("sharp");
+
 // Function to handle the image processing and predictions
 async function processImagePrediction(reqFileBuffer) {
-  try {
-    const { tensor, imageWidth, imageHeight } = await preprocessImage(reqFileBuffer, [1, 3]);
+  const img = sharp(reqFileBuffer);
+  const md = await img.metadata();
+  const [img_width,img_height] = [md.width, md.height];
 
-    const outputs = await runModel(tensor);
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.resolve(__dirname, "../utils/model.js"));
 
-    const predictions = extractCoordinates(outputs);
+    worker.postMessage({ buffer: reqFileBuffer });
 
-    console.log("Made " + predictions.length + " predictions!");
+    worker.on("message", (result) => {
+      console.log(`Created ${result.length} segments`)
 
-    return { predictions: predictions, imageSize: { width: imageWidth, height: imageHeight }};
-  } catch (error) {
-    console.error("Prediction error:", error);
-    throw new Error(error.message);
-  }
+      resolve({ predictions: result, imageSize: { width: img_width, height: img_height }});
+      worker.terminate();
+    });
+
+    worker.on("error", (error) => {
+      reject(error);
+      worker.terminate();
+    });
+
+    worker.on("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Worker stopped with exit code ${code}`));
+      }
+    });
+  });
 }
 
 router.post("/predict", verifyAccessToken, upload.single("image"), async (req, res) => {
