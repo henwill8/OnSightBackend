@@ -13,19 +13,16 @@ const sharp = require("sharp");
 
 // Function to handle the image processing and predictions
 async function processImagePrediction(reqFileBuffer) {
-  const img = sharp(reqFileBuffer);
-  const md = await img.metadata();
-  const [img_width,img_height] = [md.width, md.height];
-
+  // Create a separate worker for the model so that it doesnt block the server from processing new requests
   return new Promise((resolve, reject) => {
-    const worker = new Worker(path.resolve(__dirname, "../utils/model.js"));
+    const worker = new Worker(path.resolve(__dirname, "../utils/modelWorker.js"));
 
     worker.postMessage({ buffer: reqFileBuffer });
 
     worker.on("message", (result) => {
       console.log(`Created ${result.length} segments`)
 
-      resolve({ predictions: result, imageSize: { width: img_width, height: img_height }});
+      resolve(result);
       worker.terminate();
     });
 

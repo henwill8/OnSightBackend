@@ -47,7 +47,8 @@ async function detectSegments(buffer) {
     const output = await runModel(input);
     const prototypes = reshapePrototypes(output[1].data, output[1].dims);
 
-    return await processOutput(output[0].data, prototypes, imgWidth, imgHeight);
+    const segments = await processOutput(output[0].data, prototypes, imgWidth, imgHeight);
+    return { predictions: segments, imageSize: { width: imgWidth, height: imgHeight }}
   } catch (error) {
     console.error("Error running model:", error);
     throw error;
