@@ -1,6 +1,5 @@
 const path = require('path');
 const ort = require("onnxruntime-node");
-const onnx = require("onnxjs");
 const sharp = require("sharp");
 const cv = require("@techstark/opencv-js");
 const { parentPort, workerData, isMainThread } = require("worker_threads");
@@ -56,115 +55,177 @@ async function run_model(input) {
   return [outputs["output0"], outputs["output1"]];
 }
 
-function reshapePrototypes(data, dims) {
-  const [n, c, h, w] = dims;
-  if (n !== 1) throw new Error("Only batch size of 1 is supported for prototypes.");
-
-  const reshaped = new Array(c);
-  let idx = 0;
-
-  for (let i = 0; i < c; i++) {
-    reshaped[i] = new Array(h);
-    for (let j = 0; j < h; j++) {
-      reshaped[i][j] = new Array(w);
-      for (let k = 0; k < w; k++) {
-        reshaped[i][j][k] = data[idx++];
-      }
-    }
-  }
-
-  return {
-    data: reshaped,
-    shape: [c, h, w]
-  };
-}
-
 // https://dev.to/andreygermanov/how-to-create-yolov8-based-object-detection-web-service-using-python-julia-nodejs-javascript-go-and-rust-4o8e
 // This link explains how this works (the output tensor shapes are (1, 37, 21504), (1, 32, 256, 256), first is the actual prototype predictions, second are the prototype masks used to recreate the masks (its a form of compression))
 async function process_output(output, prototypeMasks, img_width, img_height, iouThreshold = 0.7, confidenceThreshold = 0.25) {
-  const numAnchors = 21504;
-  const maskDim = output.length / numAnchors - 4; // assuming 4 box coords + 1 score + mask dims
+  // First collect all valid bounding boxes
+  let boxes = [];
+  let maskCoefficients = [];
 
-  let preds = [];
-
-  for (let index = 0; index < numAnchors; index++) {
-    const prob = output[4 * numAnchors + index];
+  for (let index = 0; index < 21504; index++) {
+    const prob = output[21504 * 4 + index];
     if (prob < confidenceThreshold) continue;
 
     const xc = output[index];
-    const yc = output[numAnchors + index];
-    const w = output[2 * numAnchors + index];
-    const h = output[3 * numAnchors + index];
+    const yc = output[21504 + index];
+    const w = output[2 * 21504 + index];
+    const h = output[3 * 21504 + index];
 
     const x1 = (xc - w / 2) / 1024 * img_width;
     const y1 = (yc - h / 2) / 1024 * img_height;
     const x2 = (xc + w / 2) / 1024 * img_width;
     const y2 = (yc + h / 2) / 1024 * img_height;
 
-    // Extract mask vector
-    const maskVecStart = 5 * numAnchors + index;
-    const maskVector = [];
-    for (let j = 0; j < maskDim; j++) {
-      maskVector.push(output[maskVecStart + j * numAnchors]);
+    // Store the mask coefficients for this box
+    const coeffs = [];
+    for (let j = 5; j < 37; j++) {
+      coeffs.push(output[j * 21504 + index]);
     }
 
-    preds.push([x1, y1, x2, y2, prob, 0, ...maskVector]); // 0 as dummy class ID
+    boxes.push([x1, y1, x2, y2, prob, index]);
+    maskCoefficients.push(coeffs);
   }
 
-  const kept = nms(preds, iouThreshold);
-
-  // Filter out non-kept preds
-  const filteredPreds = preds.filter(pred => kept.includes(pred));
-
-  // Construct final result
-  const imgShape = [1, 3, 1024, 1024];
-
-  const rawResult = await constructResult(filteredPreds, { shape: imgShape }, prototypeMasks);
-
-  // Convert bounding boxes to polygons (as [x1, y1, x2, y1, x2, y2, x1, y2])
-  const boxPolygons = rawResult.boxes.map(([x1, y1, x2, y2]) => [
-    x1, y1,
-    x2, y1,
-    x2, y2,
-    x1, y2
-  ]);
-
-  // Convert masks to polygon coordinates
-  const maskPolygons = rawResult.masks.map(mask => {
-    const polys = maskToPolygons(mask);
-    const largestPoly = polys.reduce((a, b) => (b.length > a.length ? b : a), []);
+  // Apply NMS
+  const keptIndices = nms(boxes, iouThreshold);
   
-    // Scale the coordinates from 256x256 to original image size
-    return largestPoly.map((val, idx) =>
-      idx % 2 === 0 ? val * (img_width / 256) : val * (img_height / 256)
-    );
-  });
-
+  // Process only the kept boxes
   const results = [];
-  for (let i = 0; i < boxPolygons.length; i++) {
-    results.push(boxPolygons[i])
-    results.push(maskPolygons[i])
+  for (const i of keptIndices) {
+    const [x1, y1, x2, y2, prob, index] = boxes[i];
+    const coeffs = maskCoefficients[i];
+    
+    // Generate mask using matrix multiplication (similar to masks_in @ protos)
+    const mask = generateMaskFromCoefficients(coeffs, prototypeMasks);
+    
+    // Crop mask to bounding box
+    const croppedMask = cropMaskToBbox(mask, [x1, y1, x2, y2], img_width, img_height);
+    
+    // Convert mask to polygon
+    const polygon = maskToPolygon(croppedMask, img_width, img_height);
+    
+    results.push(polygon);
   }
-
-  console.log(results)
 
   return results;
 }
 
-function nms(boxes, iouThreshold) {
-  boxes = boxes.sort((box1, box2) => box2[4] - box1[4]); // Sort by probability
-  const result = [];
-
-  while (boxes.length > 0) {
-    const currentBox = boxes[0];
-    result.push(currentBox); // Add the highest probability box to the result
-    boxes = boxes.slice(1);  // Remove the selected box
-
-    // Filter out boxes with high IoU overlap with the current box
-    boxes = boxes.filter(box => iou(currentBox, box) < iouThreshold);
+function generateMaskFromCoefficients(coeffs, prototypes) {
+  // Matrix multiplication equivalent: coeffs @ prototypes
+  const maskHeight = 256;
+  const maskWidth = 256;
+  const mask = new Array(maskHeight).fill(0).map(() => new Array(maskWidth).fill(0));
+  
+  for (let row = 0; row < maskHeight; row++) {
+    for (let col = 0; col < maskWidth; col++) {
+      let val = 0;
+      for (let i = 0; i < coeffs.length; i++) {
+        val += coeffs[i] * prototypes[i][row][col];
+      }
+      mask[row][col] = val;
+    }
   }
+  
+  return mask;
+}
 
-  return result;
+function cropMaskToBbox(mask, bbox, img_width, img_height) {
+  const [x1, y1, x2, y2] = bbox;
+  const maskHeight = mask.length;
+  const maskWidth = mask[0].length;
+  
+  // Scale bbox to mask dimensions
+  const mask_x1 = Math.floor((x1 / img_width) * maskWidth);
+  const mask_y1 = Math.floor((y1 / img_height) * maskHeight);
+  const mask_x2 = Math.ceil((x2 / img_width) * maskWidth);
+  const mask_y2 = Math.ceil((y2 / img_height) * maskHeight);
+  
+  // Create a copy of the mask
+  const croppedMask = new Array(maskHeight).fill(0).map(() => new Array(maskWidth).fill(0));
+  
+  // Zero out values outside the bounding box
+  for (let row = 0; row < maskHeight; row++) {
+    for (let col = 0; col < maskWidth; col++) {
+      if (row >= mask_y1 && row < mask_y2 && col >= mask_x1 && col < mask_x2) {
+        croppedMask[row][col] = mask[row][col] > 0 ? 1 : 0; // Simple threshold at 0
+      }
+    }
+  }
+  
+  return croppedMask;
+}
+
+function maskToPolygon(mask, img_width, img_height) {
+  const maskHeight = mask.length;
+  const maskWidth = mask[0].length;
+  
+  // Convert mask to OpenCV Mat format
+  const binaryMask = new cv.Mat(maskHeight, maskWidth, cv.CV_8UC1);
+  for (let y = 0; y < maskHeight; y++) {
+    for (let x = 0; x < maskWidth; x++) {
+      binaryMask.ucharPtr(y, x)[0] = mask[y][x] > 0 ? 255 : 0;
+    }
+  }
+  
+  // Find contours
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  cv.findContours(binaryMask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+  
+  // Get largest contour
+  let maxArea = 0;
+  let maxContour = null;
+  for (let i = 0; i < contours.size(); i++) {
+    const cnt = contours.get(i);
+    const area = cv.contourArea(cnt);
+    if (area > maxArea) {
+      maxArea = area;
+      maxContour = cnt;
+    }
+  }
+  
+  const polygon = [];
+  if (maxContour) {
+    // Convert contour points to image coordinates
+    for (let i = 0; i < maxContour.data32S.length; i += 2) {
+      const x = maxContour.data32S[i] / maskWidth * img_width;
+      const y = maxContour.data32S[i + 1] / maskHeight * img_height;
+      polygon.push(x, y);
+    }
+  }
+  
+  // Clean up
+  binaryMask.delete();
+  contours.delete();
+  hierarchy.delete();
+  maxContour?.delete?.();
+  
+  return polygon;
+}
+
+function nms(boxes, iouThreshold) {
+  const scores = boxes.map(box => box[4]);
+  const indices = Array.from(Array(boxes.length).keys())
+    .sort((a, b) => scores[b] - scores[a]);
+  
+  const kept = [];
+  
+  while (indices.length > 0) {
+    const current = indices[0];
+    kept.push(current);
+    
+    indices.splice(0, 1); // Remove current index
+    
+    // Filter remaining indices
+    for (let i = indices.length - 1; i >= 0; i--) {
+      const idx = indices[i];
+      if (iou(boxes[current], boxes[idx]) > iouThreshold) {
+        indices.splice(i, 1);
+      }
+    }
+  }
+  
+  return kept;
 }
 
 function iou(box1, box2) {
@@ -185,94 +246,21 @@ function iou(box1, box2) {
   return interArea / unionArea;
 }
 
-async function constructResult(pred, img, proto) {
-  const predArr = pred; // assuming pred is already a JS array or Float32Array
-  const imgShape = img.shape; // [batch, channels, height, width]
-
-  // Separate bounding boxes, scores/classes, and mask vectors
-  const boxes = predArr.map(row => row.slice(0, 4));
-  const scoresAndClasses = predArr.map(row => row.slice(4, 6));
-  const maskVectors = predArr.map(row => row.slice(6));
-
-  // Process masks
-  let masks = await processMask(proto, maskVectors, boxes, [imgShape[2], imgShape[3]], true);
-
-  // Keep only masks that aren't empty
-  const keptIndices = [];
-  const updatedMasks = [];
-  const updatedBoxes = [];
-
-  for (let i = 0; i < masks.length; i++) {
-    const sum = masks[i].flat().reduce((a, b) => a + b, 0);
-    if (sum > 0) {
-      keptIndices.push(i);
-      updatedMasks.push(masks[i]);
-      updatedBoxes.push([...boxes[i], ...scoresAndClasses[i]]);
-    }
-  }
-
-  return {
-    boxes: updatedBoxes,
-    masks: updatedMasks,
-  };
-}
-
-function maskToPolygons(mask) {
-  const rows = mask.length;
-  const cols = mask[0].length;
-
-  const mat = cv.matFromArray(rows, cols, cv.CV_8UC1, mask.flat().map(v => v ? 255 : 0));
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
-  cv.findContours(mat, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-  const polygons = [];
-  for (let i = 0; i < contours.size(); i++) {
-    const contour = contours.get(i);
-    const poly = [];
-    for (let j = 0; j < contour.data32S.length; j += 2) {
-      poly.push(contour.data32S[j], contour.data32S[j + 1]);
-    }
-    if (poly.length >= 6) polygons.push(poly); // Minimum 3 points
-  }
-
-  mat.delete();
-  contours.delete();
-  hierarchy.delete();
-
-  return polygons;
-}
-
-async function processMask(protos, masksIn, bboxes, shape) {
-  const [c, mh, mw] = protos.shape;
-  const [ih, iw] = shape;
-
-  const masks = [];
-
-  for (let i = 0; i < masksIn.length; i++) {
-    const maskVec = masksIn[i];
-    const mask2D = [];
-
-    for (let y = 0; y < mh; y++) {
+function reshapePrototypes(protoData, [n, c, h, w]) {
+  const result = [];
+  for (let i = 0; i < c; i++) {
+    const channel = [];
+    for (let y = 0; y < h; y++) {
       const row = [];
-      for (let x = 0; x < mw; x++) {
-        let val = 0;
-        for (let k = 0; k < c; k++) {
-          val += maskVec[k] * protos.data[k][y][x];
-        }
-        row.push(val);
+      for (let x = 0; x < w; x++) {
+        const index = i * h * w + y * w + x; // Skip batch dim
+        row.push(protoData[index]);
       }
-      mask2D.push(row);
+      channel.push(row);
     }
-
-    const binaryMask = mask2D.map(row =>
-      row.map(v => 1 / (1 + Math.exp(-v)) > 0.5 ? 1 : 0)
-    );
-
-    masks.push(binaryMask);
+    result.push(channel);
   }
-
-  return masks;
+  return result; // shape: [32][256][256]
 }
 
 if (!isMainThread && parentPort) {
