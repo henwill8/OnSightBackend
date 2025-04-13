@@ -2,84 +2,147 @@ const path = require('path');
 const ort = require("onnxruntime-node");
 const sharp = require("sharp");
 const cv = require("@techstark/opencv-js");
-const { parentPort, workerData, isMainThread } = require("worker_threads");
+const { parentPort, isMainThread } = require("worker_threads");
 const { MODEL_VOLUME } = require('../../config');
 
 require('dotenv').config();
 
-// File path to the object detection model
+// Model paths
 const devModelPath = path.join(process.cwd(), './models/model.onnx');
 const prodModelPath = path.join(MODEL_VOLUME, '/model.onnx');
 
+// Constants
+const MODEL_INPUT_SIZE = 1024;
+const MASK_SIZE = 256;
+const NUM_PREDICTIONS = 21504;
+const CONFIDENCE_THRESHOLD = 0.25;
+const IOU_THRESHOLD = 0.7;
+
+function ensureOpenCVLoaded() {
+  return new Promise((resolve) => {
+    if (cv && cv.Mat) {
+      resolve();
+    } else {
+      // If using the browser version that has onRuntimeInitialized
+      if (cv.onRuntimeInitialized) {
+        cv.onRuntimeInitialized = () => resolve();
+      } else {
+        // For Node.js, we might need to wait a bit
+        setTimeout(resolve, 500);
+      }
+    }
+  });
+}
+
+/**
+ * Main function to detect segments in an image
+ * @param {Buffer} buffer - Image buffer
+ * @returns {Array} Array of polygon points for each detected segment
+ */
 async function detectSegments(buffer) {
   try {
-    const [input,img_width,img_height] = await prepare_input(buffer);
-    const output = await run_model(input)
+    await ensureOpenCVLoaded();
+
+    const [input, imgWidth, imgHeight] = await prepareInput(buffer);
+    const output = await runModel(input);
     const prototypes = reshapePrototypes(output[1].data, output[1].dims);
 
-    return await process_output(output[0].data, prototypes, img_width, img_height);
+    return await processOutput(output[0].data, prototypes, imgWidth, imgHeight);
   } catch (error) {
     console.error("Error running model:", error);
     throw error;
   }
 }
 
-async function prepare_input(buffer) {
+/**
+ * Prepare the input tensor from image buffer
+ * @param {Buffer} buffer - Image buffer
+ * @returns {Array} Array containing input tensor and original image dimensions
+ */
+async function prepareInput(buffer) {
   const img = sharp(buffer);
-  const md = await img.metadata();
-  const [img_width,img_height] = [md.width, md.height];
-  const pixels = await img.removeAlpha()
-      .resize({width:1024,height:1024,fit:'fill'})
-      .raw()
-      .toBuffer();
+  const metadata = await img.metadata();
+  const [imgWidth, imgHeight] = [metadata.width, metadata.height];
+  
+  const pixels = await img
+    .removeAlpha()
+    .resize({width: MODEL_INPUT_SIZE, height: MODEL_INPUT_SIZE, fit: 'fill'})
+    .raw()
+    .toBuffer();
 
+  // Split channels and normalize
   const red = [], green = [], blue = [];
-  for (let index=0; index<pixels.length; index+=3) {
-      red.push(pixels[index]/255.0);
-      green.push(pixels[index+1]/255.0);
-      blue.push(pixels[index+2]/255.0);
+  for (let i = 0; i < pixels.length; i += 3) {
+    red.push(pixels[i] / 255.0);
+    green.push(pixels[i+1] / 255.0);
+    blue.push(pixels[i+2] / 255.0);
   }
 
   const input = [...red, ...green, ...blue];
-  return [input, img_width, img_height];
+  return [input, imgWidth, imgHeight];
 }
 
-async function run_model(input) {
-  const modelPath = process.env.NODE_ENV == "development" ? devModelPath : prodModelPath;
+/**
+ * Run the ONNX model inference
+ * @param {Array} input - Preprocessed input tensor
+ * @returns {Array} Model output tensors
+ */
+async function runModel(input) {
+  const modelPath = process.env.NODE_ENV === "development" ? devModelPath : prodModelPath;
   const model = await ort.InferenceSession.create(modelPath);
 
-  input = new ort.Tensor(Float32Array.from(input),[1, 3, 1024, 1024]);
+  const inputTensor = new ort.Tensor(
+    Float32Array.from(input),
+    [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]
+  );
   const inputName = model.inputNames[0];
 
-  const outputs = await model.run({ [inputName]: input });
+  const outputs = await model.run({ [inputName]: inputTensor });
   return [outputs["output0"], outputs["output1"]];
 }
 
-// https://dev.to/andreygermanov/how-to-create-yolov8-based-object-detection-web-service-using-python-julia-nodejs-javascript-go-and-rust-4o8e
-// This link explains how this works (the output tensor shapes are (1, 37, 21504), (1, 32, 256, 256), first is the actual prototype predictions, second are the prototype masks used to recreate the masks (its a form of compression))
-async function process_output(output, prototypeMasks, img_width, img_height, iouThreshold = 0.7, confidenceThreshold = 0.25) {
-  // First collect all valid bounding boxes
-  let boxes = [];
-  let maskCoefficients = [];
+/**
+ * Process model outputs to generate segmentation masks
+ * @param {Float32Array} output - Model output data
+ * @param {Array} prototypeMasks - Prototype masks for reconstruction
+ * @param {number} imgWidth - Original image width
+ * @param {number} imgHeight - Original image height
+ * @param {number} iouThreshold - IoU threshold for NMS
+ * @param {number} confidenceThreshold - Confidence threshold for predictions
+ * @returns {Array} Array of polygon points for each detected segment
+ */
+async function processOutput(
+  output, 
+  prototypeMasks, 
+  imgWidth, 
+  imgHeight, 
+  iouThreshold = IOU_THRESHOLD, 
+  confidenceThreshold = CONFIDENCE_THRESHOLD
+) {
+  // Collect valid bounding boxes and their mask coefficients
+  const boxes = [];
+  const maskCoefficients = [];
 
-  for (let index = 0; index < 21504; index++) {
-    const prob = output[21504 * 4 + index];
+  for (let index = 0; index < NUM_PREDICTIONS; index++) {
+    const prob = output[NUM_PREDICTIONS * 4 + index];
     if (prob < confidenceThreshold) continue;
 
+    // Extract box coordinates
     const xc = output[index];
-    const yc = output[21504 + index];
-    const w = output[2 * 21504 + index];
-    const h = output[3 * 21504 + index];
+    const yc = output[NUM_PREDICTIONS + index];
+    const w = output[2 * NUM_PREDICTIONS + index];
+    const h = output[3 * NUM_PREDICTIONS + index];
 
-    const x1 = (xc - w / 2) / 1024 * img_width;
-    const y1 = (yc - h / 2) / 1024 * img_height;
-    const x2 = (xc + w / 2) / 1024 * img_width;
-    const y2 = (yc + h / 2) / 1024 * img_height;
+    // Convert to image coordinates
+    const x1 = (xc - w / 2) / MODEL_INPUT_SIZE * imgWidth;
+    const y1 = (yc - h / 2) / MODEL_INPUT_SIZE * imgHeight;
+    const x2 = (xc + w / 2) / MODEL_INPUT_SIZE * imgWidth;
+    const y2 = (yc + h / 2) / MODEL_INPUT_SIZE * imgHeight;
 
-    // Store the mask coefficients for this box
+    // Extract mask coefficients
     const coeffs = [];
     for (let j = 5; j < 37; j++) {
-      coeffs.push(output[j * 21504 + index]);
+      coeffs.push(output[j * NUM_PREDICTIONS + index]);
     }
 
     boxes.push([x1, y1, x2, y2, prob, index]);
@@ -89,35 +152,199 @@ async function process_output(output, prototypeMasks, img_width, img_height, iou
   // Apply NMS
   const keptIndices = nms(boxes, iouThreshold);
   
-  // Process only the kept boxes
+  // Process masks
   const results = [];
+  
   for (const i of keptIndices) {
-    const [x1, y1, x2, y2, prob, index] = boxes[i];
+    const [x1, y1, x2, y2] = boxes[i];
     const coeffs = maskCoefficients[i];
     
-    // Generate mask using matrix multiplication (similar to masks_in @ protos)
+    // Generate mask
     const mask = generateMaskFromCoefficients(coeffs, prototypeMasks);
+    const croppedMask = cropMaskToBbox(mask, [x1, y1, x2, y2], imgWidth, imgHeight);
     
-    // Crop mask to bounding box
-    const croppedMask = cropMaskToBbox(mask, [x1, y1, x2, y2], img_width, img_height);
+    // Process mask once and store all required data
+    const processedMask = processMask(croppedMask, imgWidth, imgHeight);
     
-    // Convert mask to polygon
-    const polygon = maskToPolygon(croppedMask, img_width, img_height);
+    // Skip invalid masks
+    if (!processedMask) continue;
     
-    results.push(polygon);
+    // Check if mask passes area and aspect ratio filters
+    if (!filterMask(processedMask, MASK_SIZE)) continue;
+    
+    // Add polygon points to results
+    results.push(processedMask.polygon);
   }
 
   return results;
 }
 
-function generateMaskFromCoefficients(coeffs, prototypes) {
-  // Matrix multiplication equivalent: coeffs @ prototypes
-  const maskHeight = 256;
-  const maskWidth = 256;
-  const mask = new Array(maskHeight).fill(0).map(() => new Array(maskWidth).fill(0));
+/**
+ * Process a mask to extract contours and metadata
+ * @param {Array} mask - Binary mask
+ * @param {number} imgWidth - Original image width
+ * @param {number} imgHeight - Original image height
+ * @param {number} [simplifyEpsilon=0.65] - Epsilon for contour simplification
+ * @param {number} [expansionRatio=0.005] - Expansion ratio relative to image size (0.01 = 1%)
+ * @returns {Object|null} Object containing mask data or null if invalid
+ */
+function processMask(mask, imgWidth, imgHeight, simplifyEpsilon = 0.65, expansionRatio = 0.005) {
+  const binaryMask = new cv.Mat(MASK_SIZE, MASK_SIZE, cv.CV_8UC1);
+  for (let y = 0; y < MASK_SIZE; y++) {
+    for (let x = 0; x < MASK_SIZE; x++) {
+      binaryMask.ucharPtr(y, x)[0] = mask[y][x] > 0 ? 255 : 0;
+    }
+  }
+
+  const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
+  const smoothed = new cv.Mat();
+  cv.morphologyEx(binaryMask, smoothed, cv.MORPH_OPEN, kernel);
+
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  cv.findContours(smoothed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+  if (contours.size() === 0) {
+    binaryMask.delete(); smoothed.delete(); contours.delete(); hierarchy.delete();
+    return null;
+  }
+
+  let maxArea = 0;
+  let maxContourIndex = -1;
+  for (let i = 0; i < contours.size(); i++) {
+    const cnt = contours.get(i);
+    const area = cv.contourArea(cnt);
+    if (area > maxArea) {
+      maxArea = area;
+      maxContourIndex = i;
+    }
+  }
+
+  if (maxContourIndex === -1) {
+    binaryMask.delete(); smoothed.delete(); contours.delete(); hierarchy.delete();
+    return null;
+  }
+
+  const maxContour = contours.get(maxContourIndex);
+  const approxContour = new cv.Mat();
+  cv.approxPolyDP(maxContour, approxContour, simplifyEpsilon, true);
+
+  const rect = cv.minAreaRect(maxContour);
+  const { width, height } = rect.size;
+
+  const rawPoints = [];
+  const scaleX = imgWidth / MASK_SIZE;
+  const scaleY = imgHeight / MASK_SIZE;
+
+  for (let i = 0; i < approxContour.total(); i++) {
+    const point = approxContour.intPtr(i);
+    rawPoints.push({
+      x: point[0] * scaleX,
+      y: point[1] * scaleY
+    });
+  }
+
+  const centroid = rawPoints.reduce(
+    (acc, pt) => ({
+      x: acc.x + pt.x / rawPoints.length,
+      y: acc.y + pt.y / rawPoints.length
+    }),
+    { x: 0, y: 0 }
+  );
+
+  const diag = Math.sqrt(imgWidth ** 2 + imgHeight ** 2);
+  const pixelExpansion = diag * expansionRatio;
+
+  const expandedPolygon = rawPoints.flatMap(pt => {
+    const dx = pt.x - centroid.x;
+    const dy = pt.y - centroid.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const normX = dist > 0 ? dx / dist : 0;
+    const normY = dist > 0 ? dy / dist : 0;
+
+    return [
+      pt.x + normX * pixelExpansion,
+      pt.y + normY * pixelExpansion
+    ];
+  });
+
+  let maskArea = 0;
+  for (let y = 0; y < MASK_SIZE; y++) {
+    for (let x = 0; x < MASK_SIZE; x++) {
+      if (mask[y][x] > 0) {
+        maskArea++;
+      }
+    }
+  }
+
+  const result = {
+    polygon: expandedPolygon,
+    area: maxArea,
+    maskArea,
+    aspectRatio: (width && height) ? Math.max(width / height, height / width) : 0,
+    width,
+    height
+  };
+
+  binaryMask.delete();
+  smoothed.delete();
+  contours.delete();
+  hierarchy.delete();
+  maxContour.delete();
+  approxContour.delete();
+
+  return result;
+}
+
+/**
+ * Filter mask based on area and aspect ratio criteria
+ * @param {Object} processedMask - Processed mask data
+ * @param {number} maskSize - Size of the mask
+ * @param {number} maxAreaRatio - Maximum area ratio
+ * @param {number} maxAspectRatio - Maximum aspect ratio
+ * @param {number} minAreaRatio - Minimum area ratio
+ * @returns {boolean} True if mask passes filters
+ */
+function filterMask(
+  processedMask,
+  maskSize,
+  maxAreaRatio = 0.03,
+  maxAspectRatio = 2.0,
+  minAreaRatio = 0.01
+) {
+  const totalPixels = maskSize * maskSize;
   
-  for (let row = 0; row < maskHeight; row++) {
-    for (let col = 0; col < maskWidth; col++) {
+  // Check if area is too large
+  if (processedMask.maskArea / totalPixels > maxAreaRatio) {
+    return false;
+  }
+  
+  // Check if dimensions are valid
+  if (processedMask.width === 0 || processedMask.height === 0) {
+    return false;
+  }
+  
+  // Apply aspect ratio filter if area is above minimum threshold
+  if (processedMask.maskArea / totalPixels > minAreaRatio && 
+      processedMask.aspectRatio > maxAspectRatio) {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Generate mask from coefficients and prototype masks
+ * @param {Array} coeffs - Mask coefficients
+ * @param {Array} prototypes - Prototype masks
+ * @returns {Array} Generated mask
+ */
+function generateMaskFromCoefficients(coeffs, prototypes) {
+  const mask = new Array(MASK_SIZE).fill(0).map(() => new Array(MASK_SIZE).fill(0));
+  
+  // Matrix multiplication equivalent
+  for (let row = 0; row < MASK_SIZE; row++) {
+    for (let col = 0; col < MASK_SIZE; col++) {
       let val = 0;
       for (let i = 0; i < coeffs.length; i++) {
         val += coeffs[i] * prototypes[i][row][col];
@@ -129,25 +356,31 @@ function generateMaskFromCoefficients(coeffs, prototypes) {
   return mask;
 }
 
-function cropMaskToBbox(mask, bbox, img_width, img_height) {
+/**
+ * Crop mask to bounding box
+ * @param {Array} mask - Input mask
+ * @param {Array} bbox - Bounding box [x1, y1, x2, y2]
+ * @param {number} imgWidth - Original image width
+ * @param {number} imgHeight - Original image height
+ * @returns {Array} Cropped mask
+ */
+function cropMaskToBbox(mask, bbox, imgWidth, imgHeight) {
   const [x1, y1, x2, y2] = bbox;
-  const maskHeight = mask.length;
-  const maskWidth = mask[0].length;
   
   // Scale bbox to mask dimensions
-  const mask_x1 = Math.floor((x1 / img_width) * maskWidth);
-  const mask_y1 = Math.floor((y1 / img_height) * maskHeight);
-  const mask_x2 = Math.ceil((x2 / img_width) * maskWidth);
-  const mask_y2 = Math.ceil((y2 / img_height) * maskHeight);
+  const maskX1 = Math.floor((x1 / imgWidth) * MASK_SIZE);
+  const maskY1 = Math.floor((y1 / imgHeight) * MASK_SIZE);
+  const maskX2 = Math.ceil((x2 / imgWidth) * MASK_SIZE);
+  const maskY2 = Math.ceil((y2 / imgHeight) * MASK_SIZE);
   
   // Create a copy of the mask
-  const croppedMask = new Array(maskHeight).fill(0).map(() => new Array(maskWidth).fill(0));
+  const croppedMask = new Array(MASK_SIZE).fill(0).map(() => new Array(MASK_SIZE).fill(0));
   
   // Zero out values outside the bounding box
-  for (let row = 0; row < maskHeight; row++) {
-    for (let col = 0; col < maskWidth; col++) {
-      if (row >= mask_y1 && row < mask_y2 && col >= mask_x1 && col < mask_x2) {
-        croppedMask[row][col] = mask[row][col] > 0 ? 1 : 0; // Simple threshold at 0
+  for (let row = 0; row < MASK_SIZE; row++) {
+    for (let col = 0; col < MASK_SIZE; col++) {
+      if (row >= maskY1 && row < maskY2 && col >= maskX1 && col < maskX2) {
+        croppedMask[row][col] = mask[row][col] > 0 ? 1 : 0; // Threshold at 0
       }
     }
   }
@@ -155,54 +388,12 @@ function cropMaskToBbox(mask, bbox, img_width, img_height) {
   return croppedMask;
 }
 
-function maskToPolygon(mask, img_width, img_height) {
-  const maskHeight = mask.length;
-  const maskWidth = mask[0].length;
-  
-  // Convert mask to OpenCV Mat format
-  const binaryMask = new cv.Mat(maskHeight, maskWidth, cv.CV_8UC1);
-  for (let y = 0; y < maskHeight; y++) {
-    for (let x = 0; x < maskWidth; x++) {
-      binaryMask.ucharPtr(y, x)[0] = mask[y][x] > 0 ? 255 : 0;
-    }
-  }
-  
-  // Find contours
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
-  cv.findContours(binaryMask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-  
-  // Get largest contour
-  let maxArea = 0;
-  let maxContour = null;
-  for (let i = 0; i < contours.size(); i++) {
-    const cnt = contours.get(i);
-    const area = cv.contourArea(cnt);
-    if (area > maxArea) {
-      maxArea = area;
-      maxContour = cnt;
-    }
-  }
-  
-  const polygon = [];
-  if (maxContour) {
-    // Convert contour points to image coordinates
-    for (let i = 0; i < maxContour.data32S.length; i += 2) {
-      const x = maxContour.data32S[i] / maskWidth * img_width;
-      const y = maxContour.data32S[i + 1] / maskHeight * img_height;
-      polygon.push(x, y);
-    }
-  }
-  
-  // Clean up
-  binaryMask.delete();
-  contours.delete();
-  hierarchy.delete();
-  maxContour?.delete?.();
-  
-  return polygon;
-}
-
+/**
+ * Non-maximum suppression
+ * @param {Array} boxes - Array of bounding boxes
+ * @param {number} iouThreshold - IoU threshold
+ * @returns {Array} Indices of kept boxes
+ */
 function nms(boxes, iouThreshold) {
   const scores = boxes.map(box => box[4]);
   const indices = Array.from(Array(boxes.length).keys())
@@ -228,6 +419,12 @@ function nms(boxes, iouThreshold) {
   return kept;
 }
 
+/**
+ * Calculate IoU between two bounding boxes
+ * @param {Array} box1 - First box [x1, y1, x2, y2, ...]
+ * @param {Array} box2 - Second box [x1, y1, x2, y2, ...]
+ * @returns {number} IoU value
+ */
 function iou(box1, box2) {
   const [x1, y1, x2, y2] = box1;
   const [x1b, y1b, x2b, y2b] = box2;
@@ -246,6 +443,12 @@ function iou(box1, box2) {
   return interArea / unionArea;
 }
 
+/**
+ * Reshape prototypes from flat array to 3D array
+ * @param {Float32Array} protoData - Flat prototype data
+ * @param {Array} dims - Dimensions [n, c, h, w]
+ * @returns {Array} Reshaped prototypes
+ */
 function reshapePrototypes(protoData, [n, c, h, w]) {
   const result = [];
   for (let i = 0; i < c; i++) {
@@ -263,9 +466,12 @@ function reshapePrototypes(protoData, [n, c, h, w]) {
   return result; // shape: [32][256][256]
 }
 
+// Set up worker thread communication
 if (!isMainThread && parentPort) {
   parentPort.on("message", async (message) => {
     const result = await detectSegments(message.buffer);
     parentPort.postMessage(result);
   });
 }
+
+module.exports = { detectSegments };
