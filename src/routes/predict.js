@@ -20,7 +20,7 @@ async function processImagePrediction(reqFileBuffer) {
     worker.postMessage({ buffer: reqFileBuffer });
 
     worker.on("message", (result) => {
-      console.log(`Created ${result.length} segments`)
+      console.log(`Created ${result.predictions.length} segments`)
 
       resolve(result);
       worker.terminate();

@@ -61,6 +61,7 @@ async function detectSegments(buffer) {
  * @returns {Array} Array containing input tensor and original image dimensions
  */
 async function prepareInput(buffer) {
+  // TODO: Ensure this works with all image sizes and rotations and convert HEIC
   const img = sharp(buffer);
   const metadata = await img.metadata();
   const [imgWidth, imgHeight] = [metadata.width, metadata.height];
