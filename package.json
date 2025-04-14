@@ -36,6 +36,7 @@
     "onnxruntime-node": "^1.21.0",
     "pg": "^8.14.0",
     "sharp": "^0.33.5",
+    "simplify-js": "^1.2.4",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

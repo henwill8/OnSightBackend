@@ -3,7 +3,7 @@ const ort = require("onnxruntime-node");
 const sharp = require("sharp");
 const cv = require("@techstark/opencv-js");
 const { parentPort, isMainThread } = require("worker_threads");
-const { MODEL_VOLUME } = require('../../config');
+const { MODEL_VOLUME } = require('../config');
 
 require('dotenv').config();
 
@@ -177,11 +177,11 @@ async function processOutput(
  * @param {Array} mask - Binary mask
  * @param {number} imgWidth - Original image width
  * @param {number} imgHeight - Original image height
- * @param {number} [simplifyEpsilon=0.65] - Epsilon for contour simplification
+ * @param {number} [radius=1] - Radius for smoothing contour
  * @param {number} [expansionRatio=0.005] - Expansion ratio relative to image size (0.01 = 1%)
  * @returns {Object|null} Object containing mask data or null if invalid
  */
-function processMask(mask, imgWidth, imgHeight, simplifyEpsilon = 0.65, expansionRatio = 0.005) {
+function processMask(mask, imgWidth, imgHeight, radius = 1, expansionRatio = 0.005) {
   const binaryMask = new cv.Mat(MASK_SIZE, MASK_SIZE, cv.CV_8UC1);
   for (let y = 0; y < MASK_SIZE; y++) {
     for (let x = 0; x < MASK_SIZE; x++) {
@@ -219,8 +219,6 @@ function processMask(mask, imgWidth, imgHeight, simplifyEpsilon = 0.65, expansio
   }
 
   const maxContour = contours.get(maxContourIndex);
-  const approxContour = new cv.Mat();
-  cv.approxPolyDP(maxContour, approxContour, simplifyEpsilon, true);
 
   const rect = cv.minAreaRect(maxContour);
   const { width, height } = rect.size;
@@ -229,18 +227,20 @@ function processMask(mask, imgWidth, imgHeight, simplifyEpsilon = 0.65, expansio
   const scaleX = imgWidth / MASK_SIZE;
   const scaleY = imgHeight / MASK_SIZE;
 
-  for (let i = 0; i < approxContour.total(); i++) {
-    const point = approxContour.intPtr(i);
+  for (let i = 0; i < maxContour.total(); i++) {
+    const point = maxContour.intPtr(i);
     rawPoints.push({
       x: point[0] * scaleX,
       y: point[1] * scaleY
     });
   }
 
+  const smoothedPoints = smoothContour(rawPoints);
+
   const centroid = rawPoints.reduce(
     (acc, pt) => ({
-      x: acc.x + pt.x / rawPoints.length,
-      y: acc.y + pt.y / rawPoints.length
+      x: acc.x + pt.x / smoothedPoints.length,
+      y: acc.y + pt.y / smoothedPoints.length
     }),
     { x: 0, y: 0 }
   );
@@ -248,7 +248,7 @@ function processMask(mask, imgWidth, imgHeight, simplifyEpsilon = 0.65, expansio
   const diag = Math.sqrt(imgWidth ** 2 + imgHeight ** 2);
   const pixelExpansion = diag * expansionRatio;
 
-  const expandedPolygon = rawPoints.flatMap(pt => {
+  const expandedPolygon = smoothedPoints.flatMap(pt => {
     const dx = pt.x - centroid.x;
     const dy = pt.y - centroid.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -284,9 +284,49 @@ function processMask(mask, imgWidth, imgHeight, simplifyEpsilon = 0.65, expansio
   contours.delete();
   hierarchy.delete();
   maxContour.delete();
-  approxContour.delete();
 
   return result;
+}
+
+function smoothContour(points, radius = 20, sigma = 0.75) {
+  const smoothed = [];
+  const len = points.length;
+
+  // Create Gaussian weights
+  const weights = [];
+  let weightSum = 0;
+  for (let j = -radius; j <= radius; j++) {
+    const w = Math.exp(-0.5 * (j / sigma) ** 2); // Gaussian kernel
+    weights.push(w);
+    weightSum += w;
+  }
+
+  for (let i = 0; i < len; i++) {
+    let sumX = 0;
+    let sumY = 0;
+
+    for (let j = -radius; j <= radius; j++) {
+      let idx = (i + j) % len; // Wrap around for closed contour
+
+      while (idx < 0) idx += len;
+
+      const weight = weights[j + radius];
+      if (!points[idx]) {
+        console.error(`Invalid point at index ${idx}:`, points[idx]);
+        continue; // Skip invalid points
+      }
+
+      sumX += points[idx].x * weight;
+      sumY += points[idx].y * weight;
+    }
+
+    smoothed.push({
+      x: sumX / weightSum,
+      y: sumY / weightSum,
+    });
+  }
+
+  return smoothed;
 }
 
 /**
