@@ -8,9 +8,6 @@ const { Worker } = require('worker_threads');
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-const imageSize = 1024;
-const sharp = require("sharp");
-
 // Function to handle the image processing and predictions
 async function processImagePrediction(reqFileBuffer) {
   // Create a separate worker for the model so that it doesnt block the server from processing new requests

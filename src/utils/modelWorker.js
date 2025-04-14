@@ -14,25 +14,9 @@ const prodModelPath = path.join(MODEL_VOLUME, '/model.onnx');
 // Constants
 const MODEL_INPUT_SIZE = 1024;
 const MASK_SIZE = 256;
-const NUM_PREDICTIONS = 21504;
+const NUM_PREDICTIONS = 21504; // The number of preliminary detections made before NMS and filtering
 const CONFIDENCE_THRESHOLD = 0.25;
 const IOU_THRESHOLD = 0.7;
-
-function ensureOpenCVLoaded() {
-  return new Promise((resolve) => {
-    if (cv && cv.Mat) {
-      resolve();
-    } else {
-      // If using the browser version that has onRuntimeInitialized
-      if (cv.onRuntimeInitialized) {
-        cv.onRuntimeInitialized = () => resolve();
-      } else {
-        // For Node.js, we might need to wait a bit
-        setTimeout(resolve, 500);
-      }
-    }
-  });
-}
 
 /**
  * Main function to detect segments in an image
@@ -45,6 +29,7 @@ async function detectSegments(buffer) {
 
     const [input, imgWidth, imgHeight] = await prepareInput(buffer);
     const output = await runModel(input);
+    console.log(output)
     const prototypes = reshapePrototypes(output[1].data, output[1].dims);
 
     const segments = await processOutput(output[0].data, prototypes, imgWidth, imgHeight);
@@ -473,6 +458,22 @@ if (!isMainThread && parentPort) {
   parentPort.on("message", async (message) => {
     const result = await detectSegments(message.buffer);
     parentPort.postMessage(result);
+  });
+}
+
+function ensureOpenCVLoaded() {
+  return new Promise((resolve) => {
+    if (cv && cv.Mat) {
+      resolve();
+    } else {
+      // If using the browser version that has onRuntimeInitialized
+      if (cv.onRuntimeInitialized) {
+        cv.onRuntimeInitialized = () => resolve();
+      } else {
+        // For Node.js, we might need to wait a bit
+        setTimeout(resolve, 500);
+      }
+    }
   });
 }
 
