@@ -25,7 +25,7 @@ function getWorker() {
   }
 
   if (workerPool.length < MAX_WORKERS) {
-    const worker = new Worker(path.resolve(__dirname, "../modelWorker.js"));
+    const worker = new Worker(path.resolve(__dirname, "../workers/modelWorker.js"));
     workerPool.push(worker);
     worker.busy = true;
 
