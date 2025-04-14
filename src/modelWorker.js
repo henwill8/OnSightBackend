@@ -55,9 +55,28 @@ async function detectSegments(buffer) {
  * @returns {Array} Array containing input tensor and original image dimensions
  */
 async function prepareInput(buffer) {
-  // TODO: Ensure this works with all image sizes and rotations and convert HEIC
-  const img = sharp(buffer);
-  const metadata = await img.metadata();
+  const { fileTypeFromBuffer } = await import("file-type");
+
+  // Get MIME type using file-type library
+  const { ext, mime } = await fileTypeFromBuffer(buffer);
+  let processedBuffer = buffer;
+
+  // If the MIME type is HEIC/HEIF, we convert it to JPEG
+  if (mime === "image/heic" || mime === "image/heif") {
+    try {
+      console.log("Detected HEIC/HEIF image. Converting to JPEG...");
+      processedBuffer = await heicConvert({
+        buffer,
+        format: "JPEG",
+        quality: 1.0,
+      });
+    } catch (error) {
+      console.warn("HEIC conversion failed, proceeding with original buffer:", error);
+    }
+  }
+
+  const rotatedBuffer = await sharp(processedBuffer).rotate().toBuffer();
+  const metadata = await sharp(rotatedBuffer).metadata();
   const [imgWidth, imgHeight] = [metadata.width, metadata.height];
   
   const pixels = await img
@@ -288,7 +307,7 @@ function processMask(mask, imgWidth, imgHeight, radius = 1, expansionRatio = 0.0
   return result;
 }
 
-function smoothContour(points, radius = 20, sigma = 0.75) {
+function smoothContour(points, radius = 2, sigma = 0.75) {
   const smoothed = [];
   const len = points.length;
 
@@ -313,7 +332,7 @@ function smoothContour(points, radius = 20, sigma = 0.75) {
       const weight = weights[j + radius];
       if (!points[idx]) {
         console.error(`Invalid point at index ${idx}:`, points[idx]);
-        continue; // Skip invalid points
+        continue;
       }
 
       sumX += points[idx].x * weight;
