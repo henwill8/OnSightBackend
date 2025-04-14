@@ -24,7 +24,7 @@ const MODEL_INPUT_SIZE = 1024;
 const MASK_SIZE = 256;
 const NUM_PREDICTIONS = 21504; // The number of preliminary detections made before NMS and filtering
 const CONFIDENCE_THRESHOLD = 0.25;
-const IOU_THRESHOLD = 0.7;
+const IOU_THRESHOLD = 0.5;
 
 // Load model once per worker lifetime
 let session;
