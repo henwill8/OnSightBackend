@@ -18,6 +18,16 @@ const NUM_PREDICTIONS = 21504; // The number of preliminary detections made befo
 const CONFIDENCE_THRESHOLD = 0.25;
 const IOU_THRESHOLD = 0.7;
 
+// Load model once per worker lifetime
+let session;
+
+(async () => {
+  const modelPath = process.env.NODE_ENV === "development" ? devModelPath : prodModelPath;
+  session = await ort.InferenceSession.create(modelPath);
+
+  console.log("ONNX model loaded in worker.");
+})();
+
 /**
  * Main function to detect segments in an image
  * @param {Buffer} buffer - Image buffer
@@ -29,8 +39,7 @@ async function detectSegments(buffer) {
 
     const [input, imgWidth, imgHeight] = await prepareInput(buffer);
     const output = await runModel(input);
-    console.log(output)
-    const prototypes = reshapePrototypes(output[1].data, output[1].dims);
+    const prototypes = reshapePrototypes(output[1].data, output[1].dims); // 32 prototype masks are added together according to the prediction's mask weights
 
     const segments = await processOutput(output[0].data, prototypes, imgWidth, imgHeight);
     return { predictions: segments, imageSize: { width: imgWidth, height: imgHeight }}
@@ -75,16 +84,13 @@ async function prepareInput(buffer) {
  * @returns {Array} Model output tensors
  */
 async function runModel(input) {
-  const modelPath = process.env.NODE_ENV === "development" ? devModelPath : prodModelPath;
-  const model = await ort.InferenceSession.create(modelPath);
-
   const inputTensor = new ort.Tensor(
     Float32Array.from(input),
     [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]
   );
-  const inputName = model.inputNames[0];
+  const inputName = session.inputNames[0];
 
-  const outputs = await model.run({ [inputName]: inputTensor });
+  const outputs = await session.run({ [inputName]: inputTensor });
   return [outputs["output0"], outputs["output1"]];
 }
 
@@ -453,14 +459,6 @@ function reshapePrototypes(protoData, [n, c, h, w]) {
   return result; // shape: [32][256][256]
 }
 
-// Set up worker thread communication
-if (!isMainThread && parentPort) {
-  parentPort.on("message", async (message) => {
-    const result = await detectSegments(message.buffer);
-    parentPort.postMessage(result);
-  });
-}
-
 function ensureOpenCVLoaded() {
   return new Promise((resolve) => {
     if (cv && cv.Mat) {
@@ -477,4 +475,18 @@ function ensureOpenCVLoaded() {
   });
 }
 
-module.exports = { detectSegments };
+parentPort.on("message", async ({ id, buffer }) => {
+  try {
+    if (!session) {
+      return parentPort.postMessage({ error: "Model not loaded yet." });
+    }
+
+    const result = await detectSegments(buffer);
+    console.log("got result")
+    parentPort.postMessage({ id, result });
+
+  } catch (error) {
+    console.error("Worker error:", error);
+    parentPort.postMessage({ id, error: error.message });
+  }
+});
