@@ -13,14 +13,14 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 // Generates the full image url based off the s3 bucket key
-function getRouteImageUrl(req, imageKey) {
+function getAssetUrl(req, imageKey) {
   return `${req.protocol}://${req.get('host')}/api/s3Assets/${imageKey}`;
 }
 
 router.post('/create-route', verifyAccessToken, upload.single('image'), async (req, res) => {
   console.log('Received request to create a route');
   
-  const { name, description, difficulty, gym_id } = req.body;
+  const { name, description, difficulty, gym_id, annotations } = req.body;
   const image = req.file;
 
   if (!difficulty || !gym_id || !image) {
@@ -31,8 +31,21 @@ router.post('/create-route', verifyAccessToken, upload.single('image'), async (r
   console.log(`Received image of size: ${image.size} bytes`);
 
   try {
-    const extension = path.extname(image.originalname);
-    const routeImageKey = path.posix.join(gym_id, S3_CONFIG.routeImagesPath, `route-${Date.now()}-${Math.round(Math.random() * 1E9)}${extension}`);
+    const imageExtension = path.extname(image.originalname);
+    const timestamp = Date.now();
+    const randomId = Math.round(Math.random() * 1E9);
+
+    const routeImageKey = path.posix.join(
+      gym_id,
+      S3_CONFIG.routeImagesPath,
+      `route-${timestamp}-${randomId}${imageExtension}`
+    );
+
+    const annotationsKey = path.posix.join(
+      gym_id,
+      S3_CONFIG.routeAnnotationsPath,
+      `annotation-${timestamp}-${randomId}.json`
+    );
 
     // Upload image to S3
     const s3Params = new PutObjectCommand({
@@ -43,13 +56,23 @@ router.post('/create-route', verifyAccessToken, upload.single('image'), async (r
     });
 
     const s3Response = await s3Client.send(s3Params);
-
     console.log('File uploaded to S3:', s3Response);
+
+    // Upload annotations to S3
+    const annotationsUploadParams = new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: annotationsKey,
+      Body: Buffer.from(annotations, 'utf-8'),
+      ContentType: 'application/json',
+    });
+    
+    const annotationsUploadResponse = await s3Client.send(annotationsUploadParams);
+    console.log('Annotations uploaded to S3:', annotationsUploadResponse);
 
     // Save route info to the database
     const result = await pool.query(
-      'INSERT INTO routes (name, description, difficulty, gym_id, creator, image_key, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) RETURNING *',
-      [name || null, description || null, difficulty, gym_id, req.userId, routeImageKey]
+      'INSERT INTO routes (name, description, difficulty, gym_id, creator, image_key, annotations_key, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP) RETURNING *',
+      [name || null, description || null, difficulty, gym_id, req.userId, routeImageKey, annotationsKey]
     );
 
     console.log('Route created successfully:', result.rows[0]);
@@ -79,7 +102,8 @@ router.get('/get-routes/:gymId', async (req, res) => {
 
     const routes = result.rows.map(route => ({
       ...route,
-      image_url: getRouteImageUrl(req, route.image_key)
+      image_url: getAssetUrl(req, route.image_key),
+      annotations_url: getAssetUrl(req, route.annotations_key)
     }));
 
     console.log(`Found ${routes.length} routes for gym ID ${gymId}`);
