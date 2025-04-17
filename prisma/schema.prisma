@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  username      String         @unique @db.VarChar(100)
+  email         String         @unique @db.VarChar(150)
+  passwordHash  String         @map("password_hash")
+  isAdmin       Boolean        @default(false) @map("is_admin")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamp()
+  routes        Route[]        @relation("RouteCreator")
+  gymOwnership  GymOwner[]
+  ratings       Rating[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Gym {
+  id           String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name         String        @unique @db.VarChar(255)
+  location     String?       @db.VarChar(255)
+  latitude     Decimal?      @db.Decimal(9, 6)
+  longitude    Decimal?      @db.Decimal(9, 6)
+  routes       Route[]
+  gymLocations GymLocation[]
+  gymOwners    GymOwner[]
+
+  @@map("gyms")
+}
+
+model GymLocation {
+  id        String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String       @db.VarChar(50)
+  gymId     String       @map("gym_id") @db.Uuid
+  parentId  String?      @map("parent_id") @db.Uuid
+  gym       Gym          @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  parent    GymLocation? @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children  GymLocation[] @relation("LocationHierarchy")
+  routes    Route[]
+
+  @@index([gymId])
+  @@index([parentId])
+  @@map("gym_locations")
+}
+
+model GymOwner {
+  gymId      String   @map("gym_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamp()
+  gym        Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([gymId, userId])
+  @@map("gym_owners")
+}
+
+model Route {
+  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name          String?     @db.VarChar(50)
+  description   String?     @db.VarChar(255)
+  difficulty    String      @db.VarChar(10)
+  gymId         String      @map("gym_id") @db.Uuid
+  locationId    String      @map("location_id") @db.Uuid
+  creator       String      @db.Uuid
+  averageRating Decimal?    @default(0) @map("average_rating") @db.Decimal(3, 2)
+  imageKey      String      @map("image_key")
+  annotationsKey String     @map("annotations_key")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamp()
+  gym           Gym         @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  location      GymLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  createdBy     User        @relation("RouteCreator", fields: [creator], references: [id], onDelete: Cascade)
+  ratings       Rating[]
+
+  @@index([locationId])
+  @@index([gymId])
+  @@map("routes")
+}
+
+model Rating {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  routeId   String   @map("route_id") @db.Uuid
+  rating    Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp()
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  route     Route    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, routeId])
+  @@map("ratings")
+}
+
+model RefreshToken {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  deviceId  String   @map("device_id") @db.Uuid
+  token     String   @unique
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp()
+  expiresAt DateTime @map("expires_at") @db.Timestamp()
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId], name: "unique_user_device")
+  @@map("refresh_tokens")
+}
