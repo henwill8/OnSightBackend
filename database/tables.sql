@@ -1,15 +1,18 @@
--- Enable the uuid-ossp extension for UUID generation
+-- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS ltree;
 
+-- Users table
 CREATE TABLE users (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     username VARCHAR(100) NOT NULL UNIQUE,
     email VARCHAR(150) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    is_admin BOOLEAN DEFAULT FALSE;
+    is_admin BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Gyms table
 CREATE TABLE gyms (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
@@ -18,6 +21,20 @@ CREATE TABLE gyms (
     longitude DECIMAL(9,6)
 );
 
+-- Gym locations table using ltree for hierarchical paths
+CREATE TABLE gym_locations (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    gym_id UUID NOT NULL REFERENCES gyms(id) ON DELETE CASCADE,
+    parent_id UUID NULL REFERENCES gym_locations(id) ON DELETE CASCADE,
+    path LTREE NOT NULL
+);
+
+CREATE INDEX idx_gym_locations_path ON gym_locations USING GIST(path);
+CREATE INDEX idx_gym_locations_gym_id ON gym_locations(gym_id);
+CREATE INDEX idx_gym_locations_parent_id ON gym_locations(parent_id);
+
+-- Gym owners
 CREATE TABLE gym_owners (
     gym_id UUID REFERENCES gyms(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -25,12 +42,14 @@ CREATE TABLE gym_owners (
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Routes table
 CREATE TABLE routes (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     name VARCHAR(50),
     description VARCHAR(255),
     difficulty VARCHAR(10) NOT NULL,
     gym_id UUID NOT NULL REFERENCES gyms(id) ON DELETE CASCADE,
+    location_id UUID NOT NULL REFERENCES gym_locations(id) ON DELETE CASCADE,
     creator UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     average_rating DECIMAL(3,2) DEFAULT 0,
     image_key TEXT NOT NULL,
@@ -38,6 +57,10 @@ CREATE TABLE routes (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX idx_routes_location_id ON routes(location_id);
+CREATE INDEX idx_routes_gym_id ON routes(gym_id);
+
+-- Ratings table
 CREATE TABLE ratings (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -47,6 +70,7 @@ CREATE TABLE ratings (
     UNIQUE (user_id, route_id)
 );
 
+-- Refresh tokens table
 CREATE TABLE refresh_tokens (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID NOT NULL,
